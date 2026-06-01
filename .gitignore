@@ -1,0 +1,96 @@
+# APK files
+base.apk
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+.env
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/*.log
+logs/*.txt
+logs/*.json
+*.log
+logs/sitl/*
+logs/frames/*
+logs/LASTLOG.TXT
+logs/launched
+logs/in
+
+# MAVLink/Simulation
+logs/sitl/mav.tlog
+logs/sitl/mav.tlog.raw
+logs/sitl/eeprom.bin
+
+# Camera frames
+logs/frames/*
+
+# Node/Frontend
+node_modules/
+npm-debug.log
+yarn-error.log
+.next/
+
+# Mobile/Android
+mobile/android/app/src/main/assets/
+mobile/android/app/build/
+
+# Database
+*.db
+*.sqlite
+postgres_data/
+
+# Generated assets
+assets/markers/aruco_marker_*.png
+*.jpg
+
+# ML Models
+*.pt
+
+# Logs/BINs
+logs/*.BIN
+
+# Test artifacts
+backend/test_obstacle_route.py
+test_route_report.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+documentacion/~$*

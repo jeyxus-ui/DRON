@@ -1,0 +1,12 @@
+# Dependencias adicionales para streaming de cámara Intel RealSense D435i
+# Agregar estas líneas a tu backend/requirements.txt existente
+
+# Intel RealSense SDK
+pyrealsense2==2.54.2
+
+# OpenCV para procesamiento de video
+opencv-python==4.8.1.78
+
+# Para manejo de imágenes
+numpy==1.24.3
+Pillow==10.1.0

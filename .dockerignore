@@ -1,0 +1,28 @@
+# Ignore node and build artifacts
+node_modules
+frontend/node_modules
+frontend/.next
+frontend/.turbo
+mobile/node_modules
+mobile/android
+mobile/ios
+
+# Python cache
+**/__pycache__
+**/*.py[cod]
+
+# Virtual envs
+.venv
+.env
+
+# Git
+.git
+.gitignore
+
+# IDEs
+.vscode
+.idea
+
+# Other build artifacts
+build
+dist
