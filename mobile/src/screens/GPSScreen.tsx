@@ -24,7 +24,7 @@ interface Waypoint {
 }
 
 const GPS_QUALITY = (hdop: number, sat: number) => {
-  if (sat >= 8 && hdop < 1.5) return { label: 'EXCELENTE', color: '#00ff88' };
+  if (sat >= 8 && hdop < 1.5) return { label: 'EXCELENTE', color: '#00B4D8' };
   if (sat >= 6 && hdop < 2.5) return { label: 'BUENO',     color: '#88ff00' };
   if (sat >= 5 && hdop < 5)   return { label: 'REGULAR',   color: '#ffaa00' };
   return                               { label: 'MALO',      color: '#ff4444' };
@@ -183,7 +183,7 @@ export const GPSScreen: React.FC = () => {
         {routeCoords.length >= 2 && (
           <Polyline
             coordinates={routeCoords}
-            strokeColor="#00ff8888"
+            strokeColor="#00B4D888"
             strokeWidth={1.5}
             lineDashPattern={[6, 4]}
           />
@@ -195,10 +195,10 @@ export const GPSScreen: React.FC = () => {
             <View style={styles.droneMarkerWrap}>
               <Animated.View style={[styles.dronePulse, {
                 transform: [{ scale: pulseAnim }],
-                backgroundColor: connected ? '#00ff8822' : '#ff004422',
-                borderColor:     connected ? '#00ff8866' : '#ff004466',
+                backgroundColor: connected ? '#00B4D822' : '#ff004422',
+                borderColor:     connected ? '#00B4D866' : '#ff004466',
               }]} />
-              <View style={[styles.droneDot, { backgroundColor: connected ? '#00ff88' : '#ff4444' }]}>
+              <View style={[styles.droneDot, { backgroundColor: connected ? '#00B4D8' : '#ff4444' }]}>
                 <Text style={styles.droneIcon}>✈</Text>
               </View>
             </View>
@@ -227,8 +227,8 @@ export const GPSScreen: React.FC = () => {
           <Circle
             center={{ latitude: lat, longitude: lon }}
             radius={hdop * 3}
-            fillColor="rgba(0,255,136,0.06)"
-            strokeColor="rgba(0,255,136,0.25)"
+            fillColor="rgba(0,180,216,0.06)"
+            strokeColor="rgba(0,180,216,0.25)"
             strokeWidth={1}
           />
         )}
@@ -239,7 +239,7 @@ export const GPSScreen: React.FC = () => {
         {/* Calidad GPS */}
         <View style={[styles.gpsPill, { borderColor: gpsQuality.color + '60', backgroundColor: gpsQuality.color + '15' }]}>
           <View style={[styles.gpsDot, { backgroundColor: gpsQuality.color }]} />
-          <Text style={[styles.gpsPillText, { color: gpsQuality.color }]}>
+          <Text style={[styles.gpsPillText, { color: gpsQuality.color, textShadowColor: gpsQuality.color, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 }]}>
             GPS {gpsQuality.label}
           </Text>
         </View>
@@ -248,11 +248,11 @@ export const GPSScreen: React.FC = () => {
         <View style={styles.hudChips}>
           <View style={styles.hudChip}>
             <Text style={styles.hudChipLabel}>SAT</Text>
-            <Text style={[styles.hudChipValue, { color: sat >= 6 ? '#00ff88' : '#ff4444' }]}>{sat}</Text>
+            <Text style={[styles.hudChipValue, { color: sat >= 6 ? '#00B4D8' : '#ff4444' }]}>{sat}</Text>
           </View>
           <View style={styles.hudChip}>
             <Text style={styles.hudChipLabel}>HDOP</Text>
-            <Text style={[styles.hudChipValue, { color: hdop < 2 ? '#00ff88' : hdop < 5 ? '#ffaa00' : '#ff4444' }]}>
+            <Text style={[styles.hudChipValue, { color: hdop < 2 ? '#00B4D8' : hdop < 5 ? '#ffaa00' : '#ff4444' }]}>
               {hdop.toFixed(1)}
             </Text>
           </View>
@@ -350,7 +350,7 @@ export const GPSScreen: React.FC = () => {
                 onLongPress={() => handleDeleteWaypoint(wp.id)}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.wpChipNum, targetWp?.id === wp.id && { color: '#00ff88' }]}>
+                <Text style={[styles.wpChipNum, targetWp?.id === wp.id && { color: '#00B4D8' }]}>
                   WP{wp.label}
                 </Text>
                 <Text style={styles.wpChipCoord}>
@@ -404,26 +404,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius:   20,
-    borderWidth:    1,
+    borderWidth:    1.5,
     gap:            6,
-    backgroundColor: 'rgba(5,5,8,0.85)',
+    backgroundColor: 'rgba(15,25,40,0.3)',
   },
-  gpsDot:      { width: 6, height: 6, borderRadius: 3 },
+  gpsDot:      { width: 6, height: 6, borderRadius: 3, shadowColor: '#00B4D8', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 6, elevation: 6 },
   gpsPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
 
   hudChips:    { flexDirection: 'row', gap: 6 },
   hudChip: {
     alignItems:      'center',
-    backgroundColor: 'rgba(5,5,8,0.85)',
-    borderRadius:    8,
+    backgroundColor: 'rgba(15,25,40,0.3)',
+    borderRadius:    12,
     paddingHorizontal: 8,
     paddingVertical: 5,
-    borderWidth:     1,
-    borderColor:     '#00ff8820',
+    borderWidth:     1.5,
+    borderColor:     'rgba(0,180,216,0.55)',
     minWidth:        44,
   },
   hudChipLabel: { color: '#444', fontSize: 7, fontWeight: '800', letterSpacing: 1 },
-  hudChipValue: { color: '#00ff88', fontSize: 13, fontWeight: '900' },
+  hudChipValue: { color: '#00B4D8', fontSize: 13, fontWeight: '900', textShadowColor: '#00B4D8', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 },
   hudChipUnit:  { color: '#444', fontSize: 8 },
 
   // ── BOTONES DERECHA ──
@@ -433,16 +433,16 @@ const styles = StyleSheet.create({
     gap:      8,
   },
   mapBtn: {
-    width:           38,
-    height:          38,
-    borderRadius:    10,
-    backgroundColor: 'rgba(5,5,8,0.85)',
-    borderWidth:     1,
-    borderColor:     '#1a1a2a',
+    width:           42,
+    height:          42,
+    borderRadius:    14,
+    backgroundColor: 'rgba(15,25,40,0.3)',
+    borderWidth:     1.5,
+    borderColor:     'rgba(255,255,255,0.15)',
     justifyContent:  'center',
     alignItems:      'center',
   },
-  mapBtnActive: { borderColor: '#00ff8860', backgroundColor: 'rgba(0,255,136,0.12)' },
+  mapBtnActive: { borderColor: '#00B4D8', backgroundColor: 'rgba(0,180,216,0.2)', shadowColor: '#00B4D8', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 10, elevation: 8 },
   mapBtnText:   { fontSize: 16 },
 
   // ── MARCADOR DRON ──
@@ -453,6 +453,7 @@ const styles = StyleSheet.create({
     height:       40,
     borderRadius: 20,
     borderWidth:  1.5,
+    borderColor:  'rgba(0,180,216,0.4)',
   },
   droneDot: {
     width:          26,
@@ -461,7 +462,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems:     'center',
     borderWidth:    2,
-    borderColor:    'rgba(255,255,255,0.3)',
+    borderColor:    'rgba(0,180,216,0.6)',
+    shadowColor:    '#00B4D8',
+    shadowOffset:   { width: 0, height: 0 },
+    shadowOpacity:  0.5,
+    shadowRadius:   8,
+    elevation:      8,
   },
   droneIcon: { fontSize: 13, color: '#050508' },
 
@@ -470,15 +476,15 @@ const styles = StyleSheet.create({
     width:           28,
     height:          28,
     borderRadius:    14,
-    backgroundColor: '#ffaa0033',
+    backgroundColor: 'rgba(255,170,0,0.3)',
     borderWidth:     2,
-    borderColor:     '#ffaa00',
+    borderColor:     'rgba(255,170,0,0.7)',
     justifyContent:  'center',
     alignItems:      'center',
   },
   wpMarkerActive: {
-    backgroundColor: '#00ff8833',
-    borderColor:     '#00ff88',
+    backgroundColor: 'rgba(0,180,216,0.3)',
+    borderColor:     '#00B4D8',
   },
   wpMarkerText: { color: '#fff', fontSize: 10, fontWeight: '900' },
 
@@ -488,18 +494,18 @@ const styles = StyleSheet.create({
     bottom:          0,
     left:            0,
     right:           0,
-    backgroundColor: 'rgba(5,5,8,0.92)',
-    borderTopWidth:  1,
-    borderTopColor:  '#0d0d1a',
+    backgroundColor: 'rgba(15,25,40,0.35)',
+    borderTopWidth:  1.5,
+    borderTopColor:  'rgba(255,255,255,0.15)',
     paddingHorizontal: 14,
     paddingTop:      12,
   },
 
   coordRow:     { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   coordItem:    { flex: 1, alignItems: 'center' },
-  coordDivider: { width: 1, height: 28, backgroundColor: '#1a1a2a' },
+  coordDivider: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.08)' },
   coordLabel:   { color: '#333', fontSize: 8, fontWeight: '800', letterSpacing: 1.5, marginBottom: 2 },
-  coordValue:   { color: '#00ff88', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+  coordValue:   { color: '#00B4D8', fontSize: 13, fontWeight: '800', letterSpacing: 0.5, textShadowColor: '#00B4D8', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 },
 
   altRow: {
     flexDirection:  'row',
@@ -512,29 +518,29 @@ const styles = StyleSheet.create({
   altBtn: {
     flex:            1,
     paddingVertical: 5,
-    borderRadius:    6,
-    backgroundColor: '#0a0a14',
-    borderWidth:     1,
-    borderColor:     '#1a1a2a',
+    borderRadius:    10,
+    backgroundColor: 'rgba(15,25,40,0.3)',
+    borderWidth:     1.5,
+    borderColor:     'rgba(255,255,255,0.1)',
     alignItems:      'center',
   },
-  altBtnActive:     { backgroundColor: '#00ff8818', borderColor: '#00ff8860' },
+  altBtnActive:     { backgroundColor: 'rgba(0,180,216,0.2)', borderColor: '#00B4D8', shadowColor: '#00B4D8', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 6 },
   altBtnText:       { color: '#444', fontSize: 10, fontWeight: '700' },
-  altBtnTextActive: { color: '#00ff88' },
+  altBtnTextActive: { color: '#00B4D8', textShadowColor: '#00B4D8', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 },
 
   // ── LISTA WAYPOINTS ──
   wpList:        { maxHeight: 60, marginBottom: 4 },
   wpListContent: { gap: 8, paddingRight: 4 },
   wpChip: {
-    backgroundColor: '#0a0a14',
-    borderRadius:    8,
-    borderWidth:     1,
-    borderColor:     '#1a1a2a',
+    backgroundColor: 'rgba(15,25,40,0.3)',
+    borderRadius:    12,
+    borderWidth:     1.5,
+    borderColor:     'rgba(255,255,255,0.12)',
     paddingHorizontal: 10,
     paddingVertical: 6,
     minWidth:        110,
   },
-  wpChipActive:  { borderColor: '#00ff8840', backgroundColor: '#00ff8810' },
+  wpChipActive:  { borderColor: '#00B4D8', backgroundColor: 'rgba(0,180,216,0.18)', shadowColor: '#00B4D8', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 6 },
   wpChipNum:     { color: '#ffaa00', fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   wpChipCoord:   { color: '#666', fontSize: 8, fontWeight: '600', marginTop: 1 },
   wpChipAlt:     { color: '#444', fontSize: 8, fontWeight: '600' },
@@ -554,10 +560,10 @@ const styles = StyleSheet.create({
     left:           '50%',
     transform:      [{ translateX: -90 }],
     width:          180,
-    backgroundColor: 'rgba(5,5,8,0.9)',
-    borderRadius:   16,
-    borderWidth:    1,
-    borderColor:    '#1a1a2a',
+    backgroundColor: 'rgba(15,25,40,0.4)',
+    borderRadius:   18,
+    borderWidth:    1.5,
+    borderColor:    'rgba(255,255,255,0.15)',
     padding:        20,
     alignItems:     'center',
     gap:            6,

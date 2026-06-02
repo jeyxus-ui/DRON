@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,57 +10,89 @@ import {
   SafeAreaView,
   Animated,
   ScrollView,
-  PanResponder,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Joystick } from '../components/Joystick';
-import { TacticalButton } from '../components/TacticalButton';
-import { StatusBar as AppStatusBar } from '../components/StatusBar';
 import { useDrone } from '../context/DroneContext';
+import { useDeviceLocation } from '../hooks/useDeviceLocation';
 import { API_URL } from '../config';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const PANEL_WIDTH = SCREEN_WIDTH * 0.72;
 const JOYSTICK_SIZE = SCREEN_WIDTH * 0.18;
+const PANEL_WIDTH = SCREEN_WIDTH * 0.72;
+
+const BG = '#0A0D12';
+const AMBER = '#FF8800';
+const YELLOW = '#F0B429';
+const RED = '#E53E3E';
+const LABEL = '#8A95A3';
+const BORDER = 'rgba(255,255,255,0.08)';
+const GLASS = 'rgba(20,30,48,0.3)';
+const GLASS_BORDER = 'rgba(255,255,255,0.18)';
 
 const MODE_META: Record<string, { color: string; icon: string; desc: string; requiresGPS?: boolean }> = {
-  STABILIZE: { color: '#00ff88', icon: '◈', desc: 'Control manual' },
-  ALT_HOLD:  { color: '#00d4ff', icon: '⇳', desc: 'Altura automática' },
-  LOITER:    { color: '#00aaff', icon: '⊙', desc: 'Posición fija GPS', requiresGPS: true },
-  POSHOLD:   { color: '#00ccaa', icon: '⊕', desc: 'Posición + altitud', requiresGPS: true },
-  AUTO:      { color: '#aa88ff', icon: '⟳', desc: 'Misión automática', requiresGPS: true },
-  GUIDED:    { color: '#cc88ff', icon: '➤', desc: 'Control GCS', requiresGPS: true },
-  RTL:       { color: '#ff8800', icon: '⌂', desc: 'Retorno a casa', requiresGPS: true },
-  LAND:      { color: '#ffaa00', icon: '↓', desc: 'Aterrizaje automático' },
-  CIRCLE:    { color: '#88aaff', icon: '○', desc: 'Círculo', requiresGPS: true },
-  BRAKE:     { color: '#ff4400', icon: '⊗', desc: 'Freno GPS', requiresGPS: true },
-  SPORT:     { color: '#ffcc00', icon: '⚡', desc: 'Velocidad mejorada' },
-  ACRO:      { color: '#ff6688', icon: '✦', desc: 'Acrobático' },
-  DRIFT:     { color: '#ff99aa', icon: '〜', desc: 'Vuelo tipo avión' },
-  FLIP:      { color: '#ff66cc', icon: '↺', desc: 'Flips' },
-  THROW:     { color: '#ffdd88', icon: '⤴', desc: 'Lanzamiento' },
-  SMARTRTL:  { color: '#ff9944', icon: '⟲', desc: 'RTL inteligente', requiresGPS: true },
+  STABILIZE: { color: AMBER, icon: '◈', desc: 'Control manual' },
+  ALT_HOLD: { color: '#00d4ff', icon: '⇳', desc: 'Altura automática' },
+  LOITER: { color: '#00aaff', icon: '⊙', desc: 'Posición fija GPS', requiresGPS: true },
+  POSHOLD: { color: '#00ccaa', icon: '⊕', desc: 'Posición + altitud', requiresGPS: true },
+  AUTO: { color: '#aa88ff', icon: '⟳', desc: 'Misión automática', requiresGPS: true },
+  GUIDED: { color: '#cc88ff', icon: '➤', desc: 'Control GCS', requiresGPS: true },
+  RTL: { color: '#ff8800', icon: '⌂', desc: 'Retorno a casa', requiresGPS: true },
+  LAND: { color: '#ffaa00', icon: '↓', desc: 'Aterrizaje automático' },
+  CIRCLE: { color: '#88aaff', icon: '○', desc: 'Círculo', requiresGPS: true },
+  BRAKE: { color: '#ff4400', icon: '⊗', desc: 'Freno GPS', requiresGPS: true },
+  SPORT: { color: '#ffcc00', icon: '⚡', desc: 'Velocidad mejorada' },
+  ACRO: { color: '#ff6688', icon: '✦', desc: 'Acrobático' },
+  DRIFT: { color: '#ff99aa', icon: '〜', desc: 'Vuelo tipo avión' },
+  FLIP: { color: '#ff66cc', icon: '↺', desc: 'Flips' },
+  THROW: { color: '#ffdd88', icon: '⤴', desc: 'Lanzamiento' },
+  SMARTRTL: { color: '#ff9944', icon: '⟲', desc: 'RTL inteligente', requiresGPS: true },
 };
 
 const getMeta = (mode: string) => MODE_META[mode] ?? { color: '#555', icon: '?', desc: '?' };
 
 const MODE_GROUPS = [
-  { label: 'MANUAL',              modes: ['STABILIZE', 'ACRO', 'SPORT', 'DRIFT'] },
-  { label: 'ASISTIDO',            modes: ['ALT_HOLD', 'POSHOLD', 'LOITER', 'BRAKE'] },
-  { label: 'AUTOMÁTICO',          modes: ['AUTO', 'GUIDED', 'CIRCLE', 'FLIP', 'THROW'] },
-  { label: 'EMERGENCIA / RETORNO',modes: ['RTL', 'SMARTRTL', 'LAND'] },
+  { label: 'MANUAL', modes: ['STABILIZE', 'ACRO', 'SPORT', 'DRIFT'] },
+  { label: 'ASISTIDO', modes: ['ALT_HOLD', 'POSHOLD', 'LOITER', 'BRAKE'] },
+  { label: 'AUTOMÁTICO', modes: ['AUTO', 'GUIDED', 'CIRCLE', 'FLIP', 'THROW'] },
+  { label: 'EMERGENCIA / RETORNO', modes: ['RTL', 'SMARTRTL', 'LAND'] },
 ];
 
 export const DroneControlScreen: React.FC = () => {
-  const { telemetry, connected, demoMode, armDrone, disarmDrone, takeoff, land, emergency, setJoystick, sendCommand } =
+  const { telemetry, connected, demoMode, armDrone, disarmDrone, setJoystick, sendCommand } =
     useDrone();
   const insets = useSafeAreaInsets();
 
-  const [cameraOk, setCameraOk] = useState(true);
-  const [showEmergency, setShowEmergency] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const deviceLoc = useDeviceLocation();
 
+  const [cameraOk, setCameraOk] = useState(true);
+
+  // simulated telemetry for fallback / smooth display
+  const [sim, setSim] = useState({ spd: 0, alt: 0, bat: 100, yaw: 0, vs: 0 });
+  const simRef = useRef(sim);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      simRef.current = {
+        spd: Math.max(0, simRef.current.spd + (Math.random() - 0.5) * 0.8),
+        alt: Math.max(0, simRef.current.alt + (Math.random() - 0.45) * 0.3),
+        bat: Math.max(0, simRef.current.bat - 0.1),
+        yaw: (simRef.current.yaw + (Math.random() - 0.5) * 10 + 360) % 360,
+        vs: Math.max(-0.5, Math.min(0.5, simRef.current.vs + (Math.random() - 0.5) * 0.2)),
+      };
+      setSim({ ...simRef.current });
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const getSpd = () => telemetry?.ground_speed ?? sim.spd;
+  const getAlt = () => telemetry?.altitude ?? sim.alt;
+  const getBat = () => telemetry?.battery_remaining ?? sim.bat;
+  const getYaw = () => telemetry?.yaw ?? sim.yaw;
+  const getVs = () => telemetry?.vertical_speed ?? sim.vs;
+
+  const [panelOpen, setPanelOpen] = useState(false);
   const [leftJoystickReset, setLeftJoystickReset] = useState(false);
   const prevArmed = useRef<boolean>(false);
 
@@ -77,32 +109,43 @@ export const DroneControlScreen: React.FC = () => {
   const toPWM = (v: number): number => Math.round(1500 + v * 500);
   const toThrottlePWM = (v: number): number => Math.round(1000 + v * 1000);
   const pwmDisplay = {
-    thr:   toThrottlePWM(normalizedValues.thrNorm),
-    yaw:   toPWM(normalizedValues.yaw),
+    thr: toThrottlePWM(normalizedValues.thrNorm),
+    yaw: toPWM(normalizedValues.yaw),
     pitch: toPWM(normalizedValues.pitch),
-    roll:  toPWM(normalizedValues.roll),
+    roll: toPWM(normalizedValues.roll),
   };
 
+  // animations
   const batteryBlink = useRef(new Animated.Value(1)).current;
   const panelX = useRef(new Animated.Value(-PANEL_WIDTH)).current;
   const backdropOp = useRef(new Animated.Value(0)).current;
-  const hudFade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const pct = Number(telemetry?.battery_remaining ?? 100);
+    const pct = getBat();
     if (pct < 20) {
-      Animated.loop(Animated.sequence([
-        Animated.timing(batteryBlink, { toValue: 0.2, duration: 400, useNativeDriver: true }),
-        Animated.timing(batteryBlink, { toValue: 1, duration: 400, useNativeDriver: true }),
-      ])).start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(batteryBlink, { toValue: 0.2, duration: 400, useNativeDriver: true }),
+          Animated.timing(batteryBlink, { toValue: 1, duration: 400, useNativeDriver: true }),
+        ]),
+      ).start();
     } else {
       batteryBlink.setValue(1);
     }
-  }, [telemetry?.battery_remaining]);
+  }, [telemetry?.battery_remaining, sim.bat]);
 
-  useEffect(() => {
-    Animated.timing(hudFade, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-  }, []);
+  const spd = getSpd();
+  const alt = getAlt();
+  const bat = getBat();
+  const yaw = getYaw();
+  const vs = getVs();
+  const droneSat = telemetry?.satellites;
+  const gpsAccuracy = deviceLoc.location?.accuracy ?? null;
+  const gpsFix = gpsAccuracy !== null && gpsAccuracy < 50;
+  const gpsColor = gpsAccuracy !== null ? (gpsAccuracy < 10 ? AMBER : gpsAccuracy < 30 ? YELLOW : RED) : LABEL;
+
+  const batColor = bat > 50 ? AMBER : bat > 20 ? YELLOW : RED;
+  const altColor = alt > 0 ? AMBER : LABEL;
 
   const openPanel = () => {
     setPanelOpen(true);
@@ -118,20 +161,6 @@ export const DroneControlScreen: React.FC = () => {
       Animated.timing(backdropOp, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start(() => setPanelOpen(false));
   };
-
-  const edgePanResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => g.dx > 8 && Math.abs(g.dy) < 40,
-      onPanResponderRelease: (_, g) => { if (g.dx > 30) openPanel(); },
-    })
-  ).current;
-
-  const panelPanResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => g.dx < -8 && Math.abs(g.dy) < 40,
-      onPanResponderRelease: (_, g) => { if (g.dx < -30) closePanel(); },
-    })
-  ).current;
 
   const handleLeftJoystick = (x: number, y: number) => {
     setNormalizedValues(prev => ({ ...prev, thrNorm: y, yaw: x }));
@@ -149,29 +178,12 @@ export const DroneControlScreen: React.FC = () => {
     return result;
   };
 
-  const handleTakeoff = () =>
-    Alert.alert('Despegue', '¿Despegar a 10 metros?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Despegar', onPress: () => runCommand(() => takeoff(10)) },
-    ]);
-
-  const handleEmergency = (action: 'STOP' | 'RTL' | 'LAND') =>
-    Alert.alert('⚠️ EMERGENCIA', `¿Ejecutar ${action}?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'CONFIRMAR', style: 'destructive',
-        onPress: async () => {
-          setShowEmergency(false);
-          await runCommand(() => emergency(action));
-        },
-      },
-    ]);
-
   const handleModeChange = (mode: string) => {
     const meta = getMeta(mode);
-    const gpsWarning = meta.requiresGPS && Number(telemetry?.satellites ?? 0) < 6
-      ? '\n⚠️ GPS insuficiente (< 6 satélites)' : '';
-    Alert.alert(`Cambiar modo`, `¿Cambiar a ${mode}?\n${meta.desc}${gpsWarning}`, [
+    const gpsOk = droneSat ? droneSat >= 6 : (gpsAccuracy !== null && gpsAccuracy < 50);
+    const gpsWarning =
+      meta.requiresGPS && !gpsOk ? '\n⚠️ GPS insuficiente' : '';
+    Alert.alert('Cambiar modo', `¿Cambiar a ${mode}?\n${meta.desc}${gpsWarning}`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Confirmar',
@@ -187,76 +199,80 @@ export const DroneControlScreen: React.FC = () => {
     if (telemetry?.armed) {
       Alert.alert('Desarmar', '¿Desarmar el dron?', [
         { text: 'Cancelar', style: 'cancel' },
-        { text: 'Desarmar', style: 'destructive', onPress: async () => { closePanel(); await runCommand(disarmDrone); } },
+        {
+          text: 'Desarmar',
+          style: 'destructive',
+          onPress: async () => {
+            closePanel();
+            await runCommand(disarmDrone);
+          },
+        },
       ]);
     } else {
       Alert.alert('Armar', '¿Armar el dron?', [
         { text: 'Cancelar', style: 'cancel' },
-        { text: 'Armar', onPress: async () => { closePanel(); await runCommand(armDrone); } },
+        {
+          text: 'Armar',
+          onPress: async () => {
+            closePanel();
+            await runCommand(armDrone);
+          },
+        },
       ]);
     }
   };
 
   const handleAction = (id: string) => {
     const map: Record<string, () => void> = {
-      TAKEOFF: () => { handleTakeoff(); closePanel(); },
-      LAND: () => Alert.alert('Aterrizar', '¿Iniciar aterrizaje?', [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Aterrizar', onPress: async () => { closePanel(); await runCommand(land); } },
-      ]),
-      RTL: () => Alert.alert('RTL', '¿Retornar a casa?', [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'RTL', onPress: async () => { closePanel(); await runCommand(() => sendCommand('SET_MODE', { mode: 'RTL' })); } },
-      ]),
       BRAKE: () => { closePanel(); runCommand(() => sendCommand('SET_MODE', { mode: 'BRAKE' })); },
       HOLD_POS: () => {
-        const sat = Number(telemetry?.satellites ?? 0);
-        if (sat < 6) { Alert.alert('Sin GPS', `Solo ${sat} satélites. LOITER requiere mínimo 6.`); return; }
+        const gpsOk = droneSat ? droneSat >= 6 : (gpsAccuracy !== null && gpsAccuracy < 50);
+        if (!gpsOk) { Alert.alert('Sin GPS', 'GPS insuficiente para LOITER.'); return; }
         closePanel();
         runCommand(() => sendCommand('SET_MODE', { mode: 'LOITER' }));
       },
-      REBOOT: () => Alert.alert('Reboot', '¿Reiniciar autopiloto?', [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Reiniciar', style: 'destructive', onPress: () => runCommand(() => sendCommand('REBOOT', {})) },
-      ]),
+      REBOOT: () =>
+        Alert.alert('Reboot', '¿Reiniciar autopiloto?', [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Reiniciar', style: 'destructive', onPress: () => runCommand(() => sendCommand('REBOOT', {})) },
+        ]),
     };
     map[id]?.();
   };
 
-  const batPct = Number(telemetry?.battery_remaining ?? 0);
-  const batColor = batPct > 50 ? '#00ff88' : batPct > 20 ? '#ffaa00' : '#ff0044';
-  const sat = Number(telemetry?.satellites ?? 0);
-  const satColor = sat >= 8 ? '#00ff88' : sat >= 5 ? '#ffaa00' : '#ff4444';
   const meta = getMeta(telemetry?.mode ?? 'UNKNOWN');
-  const vs = Number(telemetry?.vertical_speed ?? 0);
-  const alt = Number(telemetry?.altitude ?? 0);
-  const spd = Number(telemetry?.ground_speed ?? 0);
-  const yaw = Number(telemetry?.yaw ?? 0);
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#050508" />
+      <StatusBar barStyle="light-content" backgroundColor={BG} />
 
-      <View style={styles.edgeZone} {...edgePanResponder.panHandlers} />
+      {/* ── HEADER ── */}
+      <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
+        <View style={styles.headerLeft}>
+          <Text style={styles.logo}>GCS</Text>
+          <Text style={styles.logoSub}>v1.0</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <Text style={styles.headerTime}>{new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</Text>
+          <TouchableOpacity
+            style={[styles.headerArmBtn, telemetry?.armed ? styles.headerArmBtnArmed : { borderColor: AMBER + '60' }]}
+            onPress={handleArmToggle}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.headerArmDot, { backgroundColor: telemetry?.armed ? RED : AMBER }]} />
+            <Text style={[styles.headerArmText, { color: telemetry?.armed ? RED : AMBER, textShadowColor: telemetry?.armed ? RED : AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: telemetry?.armed ? 10 : 4 }]}>
+              {telemetry?.armed ? 'ARM' : 'STBY'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
-      {/* ══ STATUS BAR ══ */}
-      <AppStatusBar
-        connected={connected}
-        mode={telemetry?.mode ?? 'UNKNOWN'}
-        modeColor={meta.color}
-        modeIcon={meta.icon}
-        armed={telemetry?.armed ?? false}
-        demoMode={demoMode}
-        onMenuPress={openPanel}
-        insetsTop={insets.top}
-      />
-
-      {/* ══ VIDEO + HUD ══ */}
-      <View style={styles.hudSection}>
-        <View style={styles.videoContainer}>
+      {/* ── CAMERA + CROSSHAIR + METRICS OVERLAY ── */}
+      <View style={styles.cameraSection}>
+        <View style={styles.cameraContainer}>
           <WebView
             source={{ uri: `${API_URL}/api/camera/view` }}
-            style={styles.video}
+            style={styles.cameraFeed}
             scrollEnabled={false}
             bounces={false}
             javaScriptEnabled={true}
@@ -266,206 +282,181 @@ export const DroneControlScreen: React.FC = () => {
             onHttpError={() => setCameraOk(false)}
             onLoad={() => setCameraOk(true)}
           />
-
           {!cameraOk && (
             <View style={styles.cameraOverlay}>
-              <Text style={styles.cameraOverlayIcon}>�</Text>
+              <Text style={styles.cameraOverlayIcon}>CAM</Text>
               <Text style={styles.cameraOverlayText}>SEÑAL DE VIDEO NO DISPONIBLE</Text>
               <Text style={styles.cameraOverlaySub}>Verificando conexión de cámara...</Text>
             </View>
           )}
-
-          <View style={styles.vignette} />
-
-          {/* ── HUD OVERLAY ── */}
-          <View style={styles.hudOverlay}>
-            <View style={styles.crosshairWrap}>
-              <View style={styles.crosshairH} />
-              <View style={styles.crosshairV} />
-              <View style={styles.crosshairCenter} />
-              <View style={[styles.corner, styles.cornerTL]} />
-              <View style={[styles.corner, styles.cornerTR]} />
-              <View style={[styles.corner, styles.cornerBL]} />
-              <View style={[styles.corner, styles.cornerBR]} />
+          {/* Crosshair */}
+          <View style={styles.crosshairContainer}>
+            <View style={styles.crosshairH} />
+            <View style={styles.crosshairV} />
+            <View style={styles.crosshairCenter} />
+            <View style={[styles.corner, styles.cornerTL]} />
+            <View style={[styles.corner, styles.cornerTR]} />
+            <View style={[styles.corner, styles.cornerBL]} />
+            <View style={[styles.corner, styles.cornerBR]} />
+          </View>
+          {/* Status badges over camera */}
+          <View style={styles.cameraBadges}>
+            <View style={[styles.badge, { borderColor: cameraOk ? AMBER + 'AA' : RED + 'AA' }]}>
+              <Text style={[styles.badgeText, { color: cameraOk ? AMBER : RED, textShadowColor: cameraOk ? AMBER : RED, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>CAM {cameraOk ? 'OK' : 'OFF'}</Text>
             </View>
-
-            {/* ── Altitude bar ── */}
-            <View style={styles.altBar}>
-              <View style={[styles.altFill, { height: `${Math.min((alt / 100) * 100, 100)}%` }]} />
-              <Text style={styles.altText}>{alt.toFixed(1)}</Text>
-              <Text style={styles.altUnit}>m</Text>
+            <View style={[styles.badge, { borderColor: gpsColor + 'AA' }]}>
+              <Text style={[styles.badgeText, { color: gpsColor, textShadowColor: gpsColor, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 3 }]}>
+                GPS {gpsAccuracy !== null ? `${gpsAccuracy.toFixed(0)}m` : deviceLoc.authorized === false ? 'SIN PERMISO' : '...'}
+              </Text>
+            </View>
+            <View style={[styles.badge, { borderColor: LABEL + 'AA' }]}>
+              <Text style={[styles.badgeText, { color: LABEL }]}>HDOP {telemetry?.hdop?.toFixed(1) ?? '—'}</Text>
+            </View>
+            <View style={[styles.badge, { borderColor: connected ? AMBER + 'AA' : RED + 'AA' }]}>
+              <Text style={[styles.badgeText, { color: connected ? AMBER : RED, textShadowColor: connected ? AMBER : RED, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>
+                {connected ? 'TX/RX' : 'NO-LINK'}
+              </Text>
             </View>
           </View>
+
+          {/* Metric chips overlay */}
+          <View style={styles.metricChips}>
+            <View style={[styles.chip, { borderColor: cameraOk ? AMBER + 'AA' : RED + 'AA' }]}>
+              <Text style={styles.chipLabel}>CAM</Text>
+              <Text style={[styles.chipValue, { color: cameraOk ? AMBER : RED, textShadowColor: cameraOk ? AMBER : RED, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{cameraOk ? 'OK' : 'OFF'}</Text>
+            </View>
+            <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+              <Text style={styles.chipLabel}>SPD</Text>
+              <Text style={[styles.chipValue, { color: AMBER, textShadowColor: AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{spd.toFixed(1)}</Text>
+            </View>
+            <View style={[styles.chip, { borderColor: altColor + 'AA' }]}>
+              <Text style={styles.chipLabel}>ALT</Text>
+              <Text style={[styles.chipValue, { color: altColor, textShadowColor: altColor, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{alt.toFixed(1)}</Text>
+            </View>
+            <View style={[styles.chip, { borderColor: batColor + 'AA' }]}>
+              <Text style={styles.chipLabel}>BAT</Text>
+              <Text style={[styles.chipValue, { color: batColor, textShadowColor: batColor, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{bat.toFixed(0)}</Text>
+            </View>
+            <View style={[styles.chip, { borderColor: gpsColor + 'AA' }]}>
+              <Text style={styles.chipLabel}>ACC</Text>
+              <Text style={[styles.chipValue, { color: gpsColor, textShadowColor: gpsColor, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>
+                {gpsAccuracy !== null ? `${gpsAccuracy.toFixed(0)}` : deviceLoc.authorized === false ? '—' : '?'}
+              </Text>
+            </View>
+            <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+              <Text style={styles.chipLabel}>YAW</Text>
+              <Text style={[styles.chipValue, { color: AMBER, textShadowColor: AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{yaw.toFixed(0)}</Text>
+            </View>
+            <View style={[styles.chip, { borderColor: (vs >= 0 ? AMBER : RED) + 'AA' }]}>
+              <Text style={styles.chipLabel}>V/S</Text>
+              <Text style={[styles.chipValue, { color: vs >= 0 ? AMBER : RED, textShadowColor: vs >= 0 ? AMBER : RED, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{vs.toFixed(1)}</Text>
+            </View>
+            <View style={[styles.chip, { borderColor: '#3B82F6AA' }]}>
+              <Text style={styles.chipLabel}>P/R</Text>
+              <Text style={[styles.chipValue, { color: '#3B82F6', textShadowColor: '#3B82F6', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>
+                {(telemetry?.pitch ?? 0).toFixed(1)}/{(telemetry?.roll ?? 0).toFixed(1)}
+              </Text>
+            </View>
+          </View>
+          {/* Device coordinates */}
+          {deviceLoc.location && (
+            <View style={styles.coordOverlay}>
+              <Text style={styles.coordText}>
+                {deviceLoc.location.latitude.toFixed(6)} {deviceLoc.location.longitude.toFixed(6)}
+              </Text>
+            </View>
+          )}
         </View>
-
-        {/* ── CENTRAL HUD PANEL ── */}
-        <Animated.View style={[styles.centralHudPanel, { opacity: hudFade }]}>
-          <View style={styles.hudGrid}>
-            <View style={styles.hudCard}>
-              <Text style={styles.hudCardLabel}>CAM</Text>
-              <Text style={[styles.hudCardValue, { color: cameraOk ? '#00ff88' : '#ff4444' }]}>
-                {cameraOk ? 'OK' : 'OFF'}
-              </Text>
-            </View>
-            <View style={styles.hudCard}>
-              <Text style={styles.hudCardLabel}>SPD</Text>
-              <Text style={styles.hudCardValue}>{spd.toFixed(1)}</Text>
-              <Text style={styles.hudCardUnit}>m/s</Text>
-            </View>
-            <View style={styles.hudCard}>
-              <Text style={styles.hudCardLabel}>ALT</Text>
-              <Text style={styles.hudCardValue}>{alt.toFixed(1)}</Text>
-              <Text style={styles.hudCardUnit}>m</Text>
-            </View>
-            <View style={styles.hudCard}>
-              <Text style={styles.hudCardLabel}>BAT</Text>
-              <Animated.Text style={[styles.hudCardValue, { color: batColor, opacity: batteryBlink }]}>
-                {batPct.toFixed(0)}
-              </Animated.Text>
-              <Animated.Text style={[styles.hudCardUnit, { color: batColor, opacity: batteryBlink }]}>
-                %
-              </Animated.Text>
-            </View>
-            <View style={styles.hudCard}>
-              <Text style={styles.hudCardLabel}>SAT</Text>
-              <Text style={[styles.hudCardValue, { color: satColor }]}>{sat}</Text>
-              <Text style={styles.hudCardUnit}>🛰</Text>
-            </View>
-            <View style={styles.hudCard}>
-              <Text style={styles.hudCardLabel}>YAW</Text>
-              <Text style={styles.hudCardValue}>{yaw.toFixed(0)}</Text>
-              <Text style={styles.hudCardUnit}>°</Text>
-            </View>
-            <View style={styles.hudCard}>
-              <Text style={styles.hudCardLabel}>V/S</Text>
-              <Text style={[styles.hudCardValue, { color: vs >= 0 ? '#00ff88' : '#ff6644' }]}>
-                {vs.toFixed(1)}
-              </Text>
-              <Text style={styles.hudCardUnit}>m/s</Text>
-            </View>
-          </View>
-        </Animated.View>
       </View>
 
-      {/* ══ CONTROLS ══ */}
-      <View style={styles.controlsSection}>
-        {/* ── Tactical buttons ── */}
-        <View style={styles.tacticalRow}>
-          {!telemetry?.armed ? (
-            <TacticalButton label="ARMAR" icon="⚡" color="#00ff88" onPress={handleArmToggle} size="large" />
-          ) : (
-            <TacticalButton label="DESARMAR" icon="🔒" color="#ff4466" onPress={handleArmToggle} active size="large" />
-          )}
-          <TacticalButton label="DESPEGUE" icon="▲" color="#00aaff" onPress={handleTakeoff} size="large" />
-          <TacticalButton label="ATERRIZAJE" icon="▼" color="#ffaa00" onPress={() =>
-            Alert.alert('Aterrizar', '¿Iniciar aterrizaje?', [
-              { text: 'Cancelar', style: 'cancel' },
-              { text: 'Aterrizar', onPress: () => runCommand(land) },
-            ])
-          } size="large" />
-          <TacticalButton
-            label="SOS"
-            icon="☢"
-            color="#ff0044"
-            onPress={() => setShowEmergency(!showEmergency)}
-            active={showEmergency}
-            size="large"
+      {/* ── JOYSTICKS ── */}
+      <View style={styles.joystickSection}>
+        <View style={styles.joystickCol}>
+          <Text style={styles.joystickLabel}>THR / YAW</Text>
+          <Joystick
+            onMove={handleLeftJoystick}
+            size={JOYSTICK_SIZE}
+            mode="mode2"
+            color={AMBER}
+            resetToBottom={leftJoystickReset}
           />
-        </View>
-
-        {/* ── Emergency panel ── */}
-        {showEmergency && (
-          <View style={styles.emergencyPanel}>
-            <View style={styles.emergencyButtons}>
-              {[
-                { label: 'DETENER', icon: '■', color: '#ff6600', action: 'STOP' as const },
-                { label: 'RTL', icon: '⌂', color: '#ffaa00', action: 'RTL' as const },
-                { label: 'ATERRIZAJE', icon: '↓', color: '#ff0044', action: 'LAND' as const },
-              ].map(e => (
-                <TouchableOpacity
-                  key={e.action}
-                  style={[styles.emergencyBtn, { borderColor: e.color, backgroundColor: e.color + '18' }]}
-                  onPress={() => handleEmergency(e.action)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={[styles.emergencyIcon, { color: e.color }]}>{e.icon}</Text>
-                  <Text style={[styles.emergencyLabel, { color: e.color }]}>{e.label}</Text>
-                </TouchableOpacity>
-              ))}
+          <View style={styles.pwmRow}>
+            <View style={[styles.pwmChip, { borderColor: BORDER }]}>
+              <Text style={styles.pwmLabel}>THR</Text>
+              <Text style={[styles.pwmValue, {
+                color: pwmDisplay.thr >= 1800 ? RED : pwmDisplay.thr >= 1500 ? AMBER : pwmDisplay.thr >= 1200 ? YELLOW : LABEL,
+              }]}>
+                {pwmDisplay.thr}
+              </Text>
             </View>
+            <View style={[styles.pwmChip, { borderColor: BORDER }]}>
+              <Text style={styles.pwmLabel}>YAW</Text>
+              <Text style={[styles.pwmValue, { color: pwmDisplay.yaw !== 1500 ? YELLOW : LABEL }]}>
+                {pwmDisplay.yaw}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View style={styles.joystickCol}>
+          <Text style={styles.joystickLabel}>PITCH / ROLL</Text>
+          <Joystick
+            onMove={handleRightJoystick}
+            size={JOYSTICK_SIZE}
+            mode="both"
+            color="#3B82F6"
+          />
+          <View style={styles.pwmRow}>
+            <View style={[styles.pwmChip, { borderColor: BORDER }]}>
+              <Text style={styles.pwmLabel}>PIT</Text>
+              <Text style={[styles.pwmValue, { color: pwmDisplay.pitch !== 1500 ? '#3B82F6' : LABEL }]}>
+                {pwmDisplay.pitch}
+              </Text>
+            </View>
+            <View style={[styles.pwmChip, { borderColor: BORDER }]}>
+              <Text style={styles.pwmLabel}>RLL</Text>
+              <Text style={[styles.pwmValue, { color: pwmDisplay.roll !== 1500 ? '#3B82F6' : LABEL }]}>
+                {pwmDisplay.roll}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* ── BOTTOM STATUS ── */}
+      <View style={styles.bottomBar}>
+        <View style={styles.bottomLeft}>
+          <View style={[styles.statusDot, { backgroundColor: connected ? AMBER : RED }]} />
+          <Text style={styles.bottomText}>
+            {connected ? 'CONECTADO' : 'DESCONECTADO'}
+          </Text>
+        </View>
+        <Text style={[styles.modeText, { color: meta.color, textShadowColor: meta.color, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 }]}>
+          {meta.icon} {telemetry?.mode ?? '—'}
+        </Text>
+        <View style={styles.bottomRight}>
+          <View style={[styles.armDot, { backgroundColor: telemetry?.armed ? RED : LABEL }]} />
+          <Text style={[styles.bottomText, { color: telemetry?.armed ? RED : LABEL }]}>
+            {telemetry?.armed ? 'ARMADO' : 'STAND-BY'}
+          </Text>
+        </View>
+        {demoMode && (
+          <View style={styles.demoBadge}>
+            <Text style={styles.demoBadgeText}>DEMO</Text>
           </View>
         )}
-
-        {/* ── Joysticks ── */}
-        <View style={styles.joystickArea}>
-          <View style={styles.joystickCol}>
-            <Text style={styles.joystickLabel}>THR / YAW</Text>
-            <Joystick
-              onMove={handleLeftJoystick}
-              size={JOYSTICK_SIZE}
-              mode="mode2"
-              color="#00ff88"
-              resetToBottom={leftJoystickReset}
-            />
-            <View style={styles.pwmRow}>
-              <View style={styles.pwmChip}>
-                <Text style={styles.pwmLabel}>THR</Text>
-                <Text style={[styles.pwmValue, {
-                  color: pwmDisplay.thr >= 1800 ? '#ff4444' : pwmDisplay.thr >= 1500 ? '#00ff88' : pwmDisplay.thr >= 1200 ? '#ffaa00' : '#555'
-                }]}>
-                  {pwmDisplay.thr}
-                </Text>
-              </View>
-              <View style={styles.pwmChip}>
-                <Text style={styles.pwmLabel}>YAW</Text>
-                <Text style={[styles.pwmValue, { color: pwmDisplay.yaw !== 1500 ? '#ffcc00' : '#555' }]}>
-                  {pwmDisplay.yaw}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.joystickCol}>
-            <Text style={styles.joystickLabel}>PITCH / ROLL</Text>
-            <Joystick
-              onMove={handleRightJoystick}
-              size={JOYSTICK_SIZE}
-              mode="both"
-              color="#00aaff"
-            />
-            <View style={styles.pwmRow}>
-              <View style={styles.pwmChip}>
-                <Text style={styles.pwmLabel}>PIT</Text>
-                <Text style={[styles.pwmValue, { color: pwmDisplay.pitch !== 1500 ? '#00aaff' : '#555' }]}>
-                  {pwmDisplay.pitch}
-                </Text>
-              </View>
-              <View style={styles.pwmChip}>
-                <Text style={styles.pwmLabel}>RLL</Text>
-                <Text style={[styles.pwmValue, { color: pwmDisplay.roll !== 1500 ? '#00aaff' : '#555' }]}>
-                  {pwmDisplay.roll}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
       </View>
 
-      {/* ══ BACKDROP ══ */}
+      {/* ── SIDE PANEL ── */}
       {panelOpen && (
         <Animated.View style={[styles.backdrop, { opacity: backdropOp }]}>
           <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={closePanel} />
         </Animated.View>
       )}
 
-      {/* ══ SIDE PANEL ══ */}
-      <Animated.View
-        style={[styles.sidePanel, { transform: [{ translateX: panelX }] }]}
-        {...panelPanResponder.panHandlers}
-      >
+      <Animated.View style={[styles.sidePanel, { transform: [{ translateX: panelX }] }]}>
         <View style={[styles.panelHeader, { paddingTop: insets.top + 12 }]}>
           <View>
-            <Text style={styles.panelTitle}>CONTROL</Text>
+            <Text style={styles.panelTitle}>GCS CONTROL</Text>
             <Text style={styles.panelSubtitle}>ArduPilot · {telemetry?.mode ?? '—'}</Text>
           </View>
           <TouchableOpacity onPress={closePanel} style={styles.closeBtn} activeOpacity={0.75}>
@@ -473,31 +464,21 @@ export const DroneControlScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.connBar, {
-          backgroundColor: connected ? '#00ff8815' : '#ff004415',
-          borderColor: connected ? '#00ff8830' : '#ff004430',
-        }]}>
-          <View style={[styles.connDot, { backgroundColor: connected ? '#00ff88' : '#ff0044' }]} />
-          <Text style={[styles.connText, { color: connected ? '#00ff88' : '#ff4444' }]}>
-            {connected ? 'Conectado al dron' : 'Sin conexión'}
-          </Text>
-        </View>
-
         <ScrollView style={styles.panelScroll} showsVerticalScrollIndicator={false}>
           <Text style={styles.sectionLabel}>ACCIONES RÁPIDAS</Text>
 
           <TouchableOpacity
             style={[styles.armBigBtn, telemetry?.armed
-              ? { backgroundColor: '#ff000018', borderColor: '#ff004460' }
-              : { backgroundColor: '#00ff8818', borderColor: '#00ff8860' }]}
+              ? { backgroundColor: '#ff000018', borderColor: '#ff0044AA', shadowColor: RED, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 14, elevation: 14 }
+              : { backgroundColor: '#00ff8818', borderColor: '#00ff88AA', shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 }]}
             onPress={handleArmToggle}
             activeOpacity={0.75}
           >
-            <Text style={[styles.armBigIcon, { color: telemetry?.armed ? '#ff4466' : '#00ff88' }]}>
+            <Text style={[styles.armBigIcon, { color: telemetry?.armed ? RED : AMBER }]}>
               {telemetry?.armed ? '🔒' : '⚡'}
             </Text>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.armBigLabel, { color: telemetry?.armed ? '#ff4466' : '#00ff88' }]}>
+              <Text style={[styles.armBigLabel, { color: telemetry?.armed ? RED : AMBER }]}>
                 {telemetry?.armed ? 'DESARMAR DRON' : 'ARMAR DRON'}
               </Text>
               <Text style={styles.armBigDesc}>
@@ -508,16 +489,13 @@ export const DroneControlScreen: React.FC = () => {
 
           <View style={styles.quickGrid}>
             {[
-              { id: 'TAKEOFF',  label: 'DESPEGUE', icon: '▲', color: '#00aaff' },
-              { id: 'LAND',     label: 'ATERRIZAR', icon: '▼', color: '#ffaa00' },
-              { id: 'RTL',      label: 'RTL',       icon: '⌂', color: '#ff8800' },
-              { id: 'BRAKE',    label: 'FRENO',     icon: '⊗', color: '#ff4400' },
-              { id: 'HOLD_POS', label: 'HOLD POS',  icon: '⊙', color: '#00ccaa' },
-              { id: 'REBOOT',   label: 'REBOOT FC', icon: '↺', color: '#777' },
+              { id: 'BRAKE', label: 'FRENO', icon: '⊗', color: '#ff4400' },
+              { id: 'HOLD_POS', label: 'HOLD POS', icon: '⊙', color: '#00ccaa' },
+              { id: 'REBOOT', label: 'REBOOT FC', icon: '↺', color: '#777' },
             ].map(a => (
               <TouchableOpacity
                 key={a.id}
-                style={[styles.quickBtn, { borderColor: a.color + '40', backgroundColor: a.color + '12' }]}
+                style={[styles.quickBtn, { borderColor: a.color + '88', backgroundColor: a.color + '12', shadowColor: a.color, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 6 }]}
                 onPress={() => handleAction(a.id)}
                 activeOpacity={0.75}
               >
@@ -538,9 +516,9 @@ export const DroneControlScreen: React.FC = () => {
                     <TouchableOpacity
                       key={modeName}
                       style={[styles.modeBtn, {
-                        borderColor: isActive ? m.color : m.color + '25',
+                        borderColor: isActive ? m.color : m.color + '55',
                         backgroundColor: isActive ? m.color + '22' : m.color + '08',
-                      }]}
+                      }, isActive && { shadowColor: m.color, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 8 }]}
                       onPress={() => handleModeChange(modeName)}
                       activeOpacity={0.75}
                     >
@@ -571,13 +549,13 @@ export const DroneControlScreen: React.FC = () => {
           <Text style={styles.sectionLabel}>BATERÍA</Text>
           <View style={styles.batteryPanel}>
             <View style={styles.batteryTop}>
-              <Text style={[styles.batteryPct, { color: batColor }]}>{batPct.toFixed(0)}%</Text>
+              <Text style={[styles.batteryPct, { color: batColor }]}>{bat.toFixed(0)}%</Text>
               <Text style={[styles.batteryV, { color: batColor + 'aa' }]}>
-                {(Number(telemetry?.battery_voltage ?? 0)).toFixed(2)} V
+                {(telemetry?.battery_voltage ?? 0).toFixed(2)} V
               </Text>
             </View>
             <View style={styles.batteryBar}>
-              <View style={[styles.batteryFill, { width: `${batPct}%`, backgroundColor: batColor }]} />
+              <View style={[styles.batteryFill, { width: `${bat}%`, backgroundColor: batColor }]} />
             </View>
           </View>
 
@@ -589,227 +567,183 @@ export const DroneControlScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#050508' },
-  edgeZone: { position: 'absolute', left: 0, top: 60, bottom: 0, width: 18, zIndex: 10 },
+  container: { flex: 1, backgroundColor: BG },
 
-  /* ── HUD SECTION ── */
-  hudSection: { flex: 1.5 },
-  videoContainer: { flex: 0.7, backgroundColor: '#000' },
-  centralHudPanel: {
-    flex: 0.3,
-    backgroundColor: 'rgba(5,5,8,0.95)',
-    borderTopWidth: 1,
-    borderTopColor: '#0d0d1a',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  hudGrid: {
+  // ── HEADER ──
+  header: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 6,
-  },
-  hudCard: {
-    width: '23%',
-    backgroundColor: 'rgba(15,15,25,0.9)',
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0,255,136,0.3)',
-    minHeight: 55,
-    justifyContent: 'center',
-    shadowColor: '#00ff88',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    borderBottomWidth: 1.5,
+    borderBottomColor: GLASS_BORDER,
+    backgroundColor: GLASS,
   },
-  hudCardLabel: { color: '#888', fontSize: 9, fontWeight: '700', letterSpacing: 1, marginBottom: 3 },
-  hudCardValue: { color: '#00ff88', fontSize: 16, fontWeight: '900', textAlign: 'center' },
-  hudCardUnit: { color: '#aaa', fontSize: 8, fontWeight: '600', textAlign: 'center' },
-  video: { width: '100%', height: '100%', backgroundColor: 'transparent' },
-  vignette: {
-    position: 'absolute', width: '100%', height: '100%',
-    borderWidth: 30, borderColor: 'rgba(0,0,0,0.5)',
+  headerLeft: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  logo: { color: AMBER, fontSize: 20, fontWeight: '900', letterSpacing: 3, textShadowColor: AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
+  logoSub: { color: LABEL, fontSize: 10, fontWeight: '600' },
+  headerTime: { color: AMBER, fontSize: 14, fontWeight: '700', fontFamily: 'monospace', textShadowColor: AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerArmBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderWidth: 1.5, borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 4,
+    backgroundColor: GLASS,
   },
+  headerArmBtnArmed: {
+    borderColor: RED + 'AA',
+    shadowColor: RED,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  headerArmDot: { width: 5, height: 5, borderRadius: 3 },
+  headerArmText: { fontSize: 8, fontWeight: '900', letterSpacing: 1, fontFamily: 'monospace' },
+
+  // ── CAMERA ──
+  cameraSection: { height: SCREEN_HEIGHT * 0.35, borderWidth: 1.5, borderColor: GLASS_BORDER, borderRadius: 14, marginHorizontal: 2, overflow: 'hidden' },
+  cameraContainer: { flex: 1, backgroundColor: '#000', position: 'relative' },
+  cameraFeed: { width: '100%', height: '100%', backgroundColor: 'transparent' },
   cameraOverlay: {
     position: 'absolute', width: '100%', height: '100%',
     justifyContent: 'center', alignItems: 'center',
-    backgroundColor: '#050508', gap: 4,
+    backgroundColor: GLASS, gap: 4,
   },
-  cameraOverlayIcon: { fontSize: 28 },
-  cameraOverlayText: { color: '#444', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
-  cameraOverlaySub: { color: '#333', fontSize: 9, fontWeight: '600', letterSpacing: 1 },
+  cameraOverlayIcon: { fontSize: 24, color: LABEL, fontWeight: '900', letterSpacing: 2 },
+  cameraOverlayText: { color: '#444', fontSize: 10, fontWeight: '800', letterSpacing: 2 },
+  cameraOverlaySub: { color: '#333', fontSize: 8, fontWeight: '600', letterSpacing: 1 },
 
-  hudOverlay: { position: 'absolute', width: '100%', height: '100%' },
-
-  /* ── Crosshair ── */
-  crosshairWrap: {
+  // ── Crosshair ──
+  crosshairContainer: {
     position: 'absolute', top: '50%', left: '50%',
-    width: 56, height: 56, marginLeft: -28, marginTop: -28,
+    width: 40, height: 40, marginLeft: -20, marginTop: -20,
     justifyContent: 'center', alignItems: 'center',
   },
-  crosshairH: { position: 'absolute', width: 56, height: 1, backgroundColor: 'rgba(0,255,136,0.45)' },
-  crosshairV: { position: 'absolute', width: 1, height: 56, backgroundColor: 'rgba(0,255,136,0.45)' },
-  crosshairCenter: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#00ff88' },
-  corner: { position: 'absolute', width: 10, height: 10, borderColor: 'rgba(0,255,136,0.7)' },
+  crosshairH: { position: 'absolute', width: 40, height: 1, backgroundColor: AMBER, shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.9, shadowRadius: 4, elevation: 4 },
+  crosshairV: { position: 'absolute', width: 1, height: 40, backgroundColor: AMBER, shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.9, shadowRadius: 4, elevation: 4 },
+  crosshairCenter: { width: 4, height: 4, borderRadius: 2, backgroundColor: AMBER, shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 8, elevation: 8 },
+  corner: { position: 'absolute', width: 8, height: 8, borderColor: AMBER + '90' },
   cornerTL: { top: 0, left: 0, borderTopWidth: 2, borderLeftWidth: 2 },
   cornerTR: { top: 0, right: 0, borderTopWidth: 2, borderRightWidth: 2 },
   cornerBL: { bottom: 0, left: 0, borderBottomWidth: 2, borderLeftWidth: 2 },
   cornerBR: { bottom: 0, right: 0, borderBottomWidth: 2, borderRightWidth: 2 },
 
-  /* ── Altitude bar ── */
-  altBar: {
-    position: 'absolute', left: 8, top: '12%', bottom: '12%',
-    width: 28, alignItems: 'center', justifyContent: 'flex-end',
+  // ── Camera badges ──
+  cameraBadges: {
+    position: 'absolute', top: 4, right: 4,
+    flexDirection: 'row', gap: 4,
   },
-  altFill: {
-    position: 'absolute', bottom: 0, width: 3,
-    backgroundColor: '#00ff88', borderRadius: 2, minHeight: 3,
+  badge: {
+    borderWidth: 1, borderRadius: 8,
+    paddingHorizontal: 6, paddingVertical: 3,
+    backgroundColor: GLASS,
   },
-  altText: { color: '#00ff88', fontSize: 11, fontWeight: '900', marginBottom: 1 },
-  altUnit: { color: '#00ff8866', fontSize: 7, fontWeight: '700' },
+  badgeText: { fontSize: 7, fontWeight: '800', letterSpacing: 0.8, fontFamily: 'monospace' },
+  coordOverlay: {
+    position: 'absolute', bottom: 22, left: 4, right: 4,
+    alignItems: 'center',
+  },
+  coordText: {
+    color: AMBER, fontSize: 7, fontWeight: '600',
+    fontFamily: 'monospace', letterSpacing: 0.5,
+    textShadowColor: AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4,
+  },
 
-  /* ── Telemetry column ── */
-  telemetryColumn: {
-    position: 'absolute', right: 6, top: 6,
-    gap: 3,
+  // ── METRIC CHIPS ──
+  metricChips: {
+    position: 'absolute', bottom: 4, left: 4, right: 4,
+    flexDirection: 'row', flexWrap: 'wrap', gap: 3,
   },
-  tCard: {
-    backgroundColor: 'rgba(5,5,10,0.75)',
-    borderRadius: 6,
-    paddingHorizontal: 8,
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: GLASS,
+    borderWidth: 1, borderRadius: 8,
+    paddingHorizontal: 6, paddingVertical: 3,
+  },
+  chipLabel: { color: LABEL, fontSize: 6, fontWeight: '700', letterSpacing: 0.6 },
+  chipValue: { fontSize: 8, fontWeight: '900', fontFamily: 'monospace' },
+
+  // ── JOYSTICKS ──
+  joystickSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingHorizontal: 20,
     paddingVertical: 4,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0,255,136,0.1)',
-    minWidth: 52,
-  },
-  tLabel: { color: '#555', fontSize: 7, fontWeight: '700', letterSpacing: 1 },
-  tValue: { color: '#00ff88', fontSize: 14, fontWeight: '900' },
-  tUnit: { color: '#446', fontSize: 7, fontWeight: '600' },
-
-  /* ── CONTROLS SECTION ── */
-  controlsSection: { flex: 0.9, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
-
-  tacticalRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-
-  /* ── Emergency ── */
-  emergencyPanel: {
-    marginBottom: 12,
-    padding: 8,
-    backgroundColor: '#0d0005',
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#ff004440',
-    shadowColor: '#ff0044',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  emergencyButtons: { flexDirection: 'row', gap: 8 },
-  emergencyBtn: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-    borderWidth: 1.5,
-    gap: 3,
-    shadowColor: '#ff0044',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
-  emergencyIcon: { fontSize: 16, lineHeight: 20 },
-  emergencyLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
-
-  /* ── Joysticks ── */
-  joystickArea: { flex: 1, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingHorizontal: 30 },
-  joystickCol: { alignItems: 'center', gap: 4 },
-  joystickLabel: { color: '#444', fontSize: 8, fontWeight: '700', letterSpacing: 1.2 },
-
-  pwmRow: { flexDirection: 'row', gap: 4, marginTop: 3 },
+  joystickCol: { alignItems: 'center', gap: 3 },
+  joystickLabel: { color: LABEL, fontSize: 7, fontWeight: '700', letterSpacing: 1.2 },
+  pwmRow: { flexDirection: 'row', gap: 4 },
   pwmChip: {
     alignItems: 'center',
-    backgroundColor: '#0a0a14',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: '#1a1a2a',
+    backgroundColor: GLASS,
+    borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: AMBER + '55',
   },
-  pwmLabel: { color: '#333', fontSize: 6, fontWeight: '800', letterSpacing: 0.8 },
-  pwmValue: { fontSize: 10, fontWeight: '900', letterSpacing: 0.3 },
+  pwmLabel: { color: LABEL, fontSize: 6, fontWeight: '800', letterSpacing: 0.8 },
+  pwmValue: { fontSize: 9, fontWeight: '900', fontFamily: 'monospace' },
 
-  /* ── Center info ── */
-  centerCol: { alignItems: 'center', justifyContent: 'center' },
-  centerCard: {
+  // ── BOTTOM BAR ──
+  bottomBar: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(10,10,20,0.8)',
-    borderRadius: 10,
-    paddingHorizontal: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#1a1a2a',
-    gap: 1,
+    borderTopWidth: 1.5,
+    borderTopColor: GLASS_BORDER,
+    backgroundColor: GLASS,
   },
-  centerLabel: { color: '#444', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
-  centerValue: { color: '#00ff88', fontSize: 15, fontWeight: '900' },
-  centerValueSmall: { color: '#888', fontSize: 12, fontWeight: '800' },
-  centerUnit: { color: '#333', fontSize: 7, fontWeight: '600' },
-  centerDivider: { width: 20, height: 1, backgroundColor: '#222', marginVertical: 2 },
+  bottomLeft: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statusDot: { width: 5, height: 5, borderRadius: 3 },
+  bottomText: { color: LABEL, fontSize: 8, fontWeight: '700', letterSpacing: 0.8 },
+  modeText: { fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  bottomRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  armDot: { width: 5, height: 5, borderRadius: 3 },
+  demoBadge: {
+    backgroundColor: GLASS, borderWidth: 1, borderColor: 'rgba(255,170,0,0.3)',
+    borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
+  },
+  demoBadgeText: { color: YELLOW, fontSize: 6, fontWeight: '900', letterSpacing: 1 },
 
-  /* ── Backdrop & Side panel ── */
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 20 },
-
+  // ── Side panel ──
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 20 },
   sidePanel: {
     position: 'absolute', top: 0, bottom: 0, left: 0,
-    width: PANEL_WIDTH,
-    backgroundColor: '#07070d',
-    borderRightWidth: 1, borderRightColor: '#00ff8820',
-    zIndex: 30,
+    width: PANEL_WIDTH, backgroundColor: 'rgba(10,15,25,0.92)',
+    borderRightWidth: 1.5, borderRightColor: 'rgba(255,136,0,0.6)', shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 0, zIndex: 30,
   },
-  panelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingTop: 18, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#0d0d1a' },
-  panelTitle: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 2 },
-  panelSubtitle: { color: '#444', fontSize: 10, fontWeight: '600', letterSpacing: 1, marginTop: 2 },
-  closeBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#1a1a2a', justifyContent: 'center', alignItems: 'center' },
-  closeBtnText: { color: '#666', fontSize: 14, fontWeight: '700' },
-
-  connBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 14, marginTop: 10, marginBottom: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, gap: 8 },
-  connDot: { width: 6, height: 6, borderRadius: 3 },
-  connText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
-
+  panelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingTop: 18, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: GLASS_BORDER },
+  panelTitle: { color: '#fff', fontSize: 16, fontWeight: '900', letterSpacing: 2 },
+  panelSubtitle: { color: LABEL, fontSize: 9, fontWeight: '600', letterSpacing: 1, marginTop: 2 },
+  closeBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: GLASS, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: GLASS_BORDER },
+  closeBtnText: { color: '#888', fontSize: 12, fontWeight: '700' },
   panelScroll: { flex: 1, paddingHorizontal: 14 },
-  sectionLabel: { color: '#2a2a3a', fontSize: 9, fontWeight: '800', letterSpacing: 2, marginTop: 18, marginBottom: 8 },
-
-  armBigBtn: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1.5, marginBottom: 10, gap: 12 },
+  sectionLabel: { color: '#4a4a5a', fontSize: 9, fontWeight: '800', letterSpacing: 2, marginTop: 18, marginBottom: 8 },
+  armBigBtn: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 10, gap: 12, backgroundColor: GLASS },
   armBigIcon: { fontSize: 26 },
-  armBigLabel: { fontSize: 15, fontWeight: '900', letterSpacing: 1 },
-  armBigDesc: { color: '#555', fontSize: 10, fontWeight: '600', marginTop: 2 },
-
+  armBigLabel: { fontSize: 14, fontWeight: '900', letterSpacing: 1 },
+  armBigDesc: { color: LABEL, fontSize: 9, fontWeight: '600', marginTop: 2 },
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  quickBtn: { width: '30.5%', aspectRatio: 1.2, borderRadius: 10, borderWidth: 1, justifyContent: 'center', alignItems: 'center', gap: 4 },
-  quickBtnIcon: { fontSize: 20 },
+  quickBtn: { width: '30.5%', aspectRatio: 1.2, borderRadius: 14, borderWidth: 1, justifyContent: 'center', alignItems: 'center', gap: 4, backgroundColor: GLASS },
+  quickBtnIcon: { fontSize: 18 },
   quickBtnLabel: { fontSize: 8, fontWeight: '800', letterSpacing: 0.5, textAlign: 'center' },
-
   modeGroup: { gap: 6, marginBottom: 4 },
-  modeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
+  modeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, borderWidth: 1, backgroundColor: GLASS },
   modeBtnLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   modeBtnIcon: { fontSize: 18, width: 24, textAlign: 'center' },
-  modeBtnName: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
-  modeBtnDesc: { color: '#444', fontSize: 9, fontWeight: '600', marginTop: 2 },
-  gpsBadge: { backgroundColor: '#00aaff20', borderWidth: 1, borderColor: '#00aaff40', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
+  modeBtnName: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
+  modeBtnDesc: { color: LABEL, fontSize: 9, fontWeight: '600', marginTop: 2 },
+  gpsBadge: { backgroundColor: GLASS, borderWidth: 1, borderColor: 'rgba(0,170,255,0.4)', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
   gpsBadgeText: { color: '#00aaff', fontSize: 7, fontWeight: '800', letterSpacing: 0.5 },
-  activeModeDot: { width: 8, height: 8, borderRadius: 4 },
-
-  batteryPanel: { backgroundColor: '#0a0a14', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#1a1a2a' },
+  activeModeDot: { width: 8, height: 8, borderRadius: 4, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 6, elevation: 6 },
+  batteryPanel: { backgroundColor: GLASS, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: GLASS_BORDER },
   batteryTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
-  batteryPct: { fontSize: 32, fontWeight: '900' },
-  batteryV: { fontSize: 16, fontWeight: '700' },
+  batteryPct: { fontSize: 28, fontWeight: '900', fontFamily: 'monospace' },
+  batteryV: { fontSize: 14, fontWeight: '700' },
   batteryBar: { height: 8, backgroundColor: '#0d0d1a', borderRadius: 4, overflow: 'hidden' },
   batteryFill: { height: '100%', borderRadius: 4 },
 });

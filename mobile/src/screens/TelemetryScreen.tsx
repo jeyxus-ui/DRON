@@ -13,7 +13,7 @@ import { useDrone } from '../context/DroneContext';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const MODE_COLORS: Record<string, string> = {
-  STABILIZE: '#00ff88',
+  STABILIZE: '#14B8A6',
   ALT_HOLD: '#00d4ff',
   LOITER: '#00aaff',
   AUTO: '#aa88ff',
@@ -48,8 +48,8 @@ export const TelemetryScreen: React.FC = () => {
   const mode = String(telemetry?.mode ?? 'UNKNOWN');
   const armed = Boolean(telemetry?.armed);
 
-  const batColor = batPct > 50 ? '#00ff88' : batPct > 20 ? '#ffaa00' : '#ff0044';
-  const satColor = sat >= 8 ? '#00ff88' : sat >= 5 ? '#ffaa00' : '#ff4444';
+  const batColor = batPct > 50 ? '#14B8A6' : batPct > 20 ? '#ffaa00' : '#ff0044';
+  const satColor = sat >= 8 ? '#14B8A6' : sat >= 5 ? '#ffaa00' : '#ff4444';
   const modeColor = getModeColor(mode);
   const insets = useSafeAreaInsets();
 
@@ -65,9 +65,9 @@ export const TelemetryScreen: React.FC = () => {
           <Text style={styles.title}>TELEMETRÍA</Text>
           <Text style={styles.subtitle}>Datos en tiempo real</Text>
         </View>
-        <View style={[styles.connBadge, { borderColor: connected ? '#00ff8840' : '#ff004440', backgroundColor: connected ? '#00ff8812' : '#ff004412' }]}>
-          <View style={[styles.connDot, { backgroundColor: connected ? '#00ff88' : '#ff0044' }]} />
-          <Text style={[styles.connText, { color: connected ? '#00ff88' : '#ff4444' }]}>
+        <View style={[styles.connBadge, { borderColor: connected ? '#14B8A640' : '#ff004440', backgroundColor: connected ? '#14B8A612' : '#ff004412' }]}>
+          <View style={[styles.connDot, { backgroundColor: connected ? '#14B8A6' : '#ff0044' }]} />
+          <Text style={[styles.connText, { color: connected ? '#14B8A6' : '#ff4444' }]}>
             {connected ? 'ONLINE' : 'OFFLINE'}
           </Text>
         </View>
@@ -83,7 +83,7 @@ export const TelemetryScreen: React.FC = () => {
             <Text style={styles.statusCardLabel}>MODO</Text>
             <View style={[styles.modePill, { backgroundColor: modeColor + '20', borderColor: modeColor + '60' }]}>
               <View style={[styles.modeDot, { backgroundColor: modeColor }]} />
-              <Text style={[styles.modePillText, { color: modeColor }]}>{mode}</Text>
+              <Text style={[styles.modePillText, { color: modeColor, textShadowColor: modeColor }]}>{mode}</Text>
             </View>
           </View>
 
@@ -94,7 +94,7 @@ export const TelemetryScreen: React.FC = () => {
             backgroundColor: armed ? '#ff000010' : '#0a0a14',
           }]}>
             <Text style={styles.statusCardLabel}>ESTADO</Text>
-            <Text style={[styles.statusCardValue, { color: armed ? '#ff4466' : '#555' }]}>
+            <Text style={[styles.statusCardValue, { color: armed ? '#ff4466' : '#555', textShadowColor: armed ? '#ff4466' : 'transparent', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: armed ? 8 : 0 }]}>
               {armed ? '⚡ ARMADO' : '● STANDBY'}
             </Text>
           </View>
@@ -138,12 +138,12 @@ export const TelemetryScreen: React.FC = () => {
           <View style={styles.attitudeValues}>
             {[
               { label: 'ROLL', value: roll.toFixed(1), unit: '°', color: '#00aaff' },
-              { label: 'PITCH', value: pitch.toFixed(1), unit: '°', color: '#00ff88' },
+              { label: 'PITCH', value: pitch.toFixed(1), unit: '°', color: '#14B8A6' },
               { label: 'YAW', value: yaw.toFixed(1), unit: '°', color: '#ffaa00' },
             ].map((item) => (
               <View key={item.label} style={styles.attValCard}>
                 <Text style={styles.attValLabel}>{item.label}</Text>
-                <Text style={[styles.attValNumber, { color: item.color }]}>{item.value}</Text>
+                <Text style={[styles.attValNumber, { color: item.color, textShadowColor: item.color }]}>{item.value}</Text>
                 <Text style={styles.attValUnit}>{item.unit}</Text>
               </View>
             ))}
@@ -159,20 +159,20 @@ export const TelemetryScreen: React.FC = () => {
             <Text style={styles.speedUnit}>m/s</Text>
             {/* Barra de velocidad */}
             <View style={styles.speedBar}>
-              <View style={[styles.speedFill, { width: `${Math.min(gs / 15 * 100, 100)}%`, backgroundColor: '#00ff88' }]} />
+              <View style={[styles.speedFill, { width: `${Math.min(gs / 15 * 100, 100)}%`, backgroundColor: '#14B8A6' }]} />
             </View>
           </View>
 
           <View style={styles.speedCard}>
             <Text style={styles.speedLabel}>VERTICAL</Text>
-            <Text style={[styles.speedValue, { color: vs >= 0 ? '#00ff88' : '#ff6644' }]}>
+            <Text style={[styles.speedValue, { color: vs >= 0 ? '#14B8A6' : '#ff6644', textShadowColor: vs >= 0 ? '#14B8A6' : '#ff6644' }]}>
               {vs >= 0 ? '+' : ''}{vs.toFixed(2)}
             </Text>
             <Text style={styles.speedUnit}>m/s</Text>
             <View style={styles.speedBar}>
               <View style={[styles.speedFill, {
                 width: `${Math.min(Math.abs(vs) / 5 * 100, 100)}%`,
-                backgroundColor: vs >= 0 ? '#00ff88' : '#ff6644',
+                backgroundColor: vs >= 0 ? '#14B8A6' : '#ff6644',
               }]} />
             </View>
           </View>
@@ -182,15 +182,15 @@ export const TelemetryScreen: React.FC = () => {
         <Text style={styles.sectionLabel}>POSICIÓN & GPS</Text>
         <View style={styles.dataContainer}>
           {[
-            { label: 'Altitud', value: alt.toFixed(2), unit: 'm', color: '#00ff88' },
+            { label: 'Altitud', value: alt.toFixed(2), unit: 'm', color: '#14B8A6' },
             { label: 'Latitud', value: lat.toFixed(6), unit: '°', color: '#aaa' },
             { label: 'Longitud', value: lon.toFixed(6), unit: '°', color: '#aaa' },
             { label: 'Satélites', value: String(sat), unit: '', color: satColor },
-            { label: 'HDOP', value: hdop.toFixed(2), unit: '', color: hdop < 2 ? '#00ff88' : hdop < 5 ? '#ffaa00' : '#ff4444' },
+            { label: 'HDOP', value: hdop.toFixed(2), unit: '', color: hdop < 2 ? '#14B8A6' : hdop < 5 ? '#ffaa00' : '#ff4444' },
           ].map((row, i, arr) => (
             <View key={row.label} style={[styles.dataRow, i === arr.length - 1 && { borderBottomWidth: 0 }]}>
               <Text style={styles.rowLabel}>{row.label}</Text>
-              <Text style={[styles.rowValue, { color: row.color }]}>
+              <Text style={[styles.rowValue, { color: row.color, textShadowColor: row.color, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 3 }]}>
                 {row.value} <Text style={styles.rowUnit}>{row.unit}</Text>
               </Text>
             </View>
@@ -202,8 +202,8 @@ export const TelemetryScreen: React.FC = () => {
         <View style={styles.batteryCard}>
           {/* Porcentaje grande */}
           <View style={styles.batteryTopRow}>
-            <Text style={[styles.batteryPct, { color: batColor }]}>{batPct.toFixed(0)}%</Text>
-            <Text style={[styles.batteryVoltage, { color: batColor }]}>{batV.toFixed(2)} V</Text>
+            <Text style={[styles.batteryPct, { color: batColor, textShadowColor: batColor }]}>{batPct.toFixed(0)}%</Text>
+            <Text style={[styles.batteryVoltage, { color: batColor, textShadowColor: batColor, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{batV.toFixed(2)} V</Text>
           </View>
 
           {/* Barra */}
@@ -246,14 +246,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#0d0d1a',
+    borderBottomWidth: 1.5,
+    borderBottomColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(15,25,40,0.3)',
   },
   title: {
     fontSize: 22,
     fontWeight: '900',
     color: '#fff',
     letterSpacing: 3,
+    textShadowColor: '#14B8A6',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
   },
   subtitle: {
     fontSize: 10,
@@ -268,13 +272,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
-    borderWidth: 1,
+    borderWidth: 1.5,
     gap: 6,
+    backgroundColor: 'rgba(15,25,40,0.3)',
   },
   connDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
+    shadowColor: '#14B8A6',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 6,
   },
   connText: {
     fontSize: 10,
@@ -301,11 +311,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   statusCard: {
-    backgroundColor: '#0a0a14',
-    borderRadius: 12,
+    backgroundColor: 'rgba(20,30,50,0.25)',
+    borderRadius: 16,
     padding: 14,
-    borderWidth: 1,
-    borderColor: '#1a1a2a',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.1)',
     gap: 8,
   },
   statusCardLabel: {
@@ -325,15 +335,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 1.5,
     gap: 6,
     alignSelf: 'flex-start',
+    backgroundColor: 'rgba(15,25,40,0.3)',
   },
-  modeDot: { width: 6, height: 6, borderRadius: 3 },
+  modeDot: { width: 6, height: 6, borderRadius: 3, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 6, elevation: 6 },
   modePillText: {
     fontSize: 13,
     fontWeight: '900',
     letterSpacing: 1,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
   },
 
   // ── HORIZON ──
@@ -349,11 +362,12 @@ const styles = StyleSheet.create({
   horizonMask: {
     width: 140,
     height: 110,
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#1a1a2a',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.15)',
     position: 'relative',
+    backgroundColor: 'rgba(15,25,40,0.3)',
   },
   horizonInner: {
     position: 'absolute',
@@ -378,8 +392,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 2,
-    backgroundColor: '#00ff88',
+    backgroundColor: '#14B8A6',
     marginTop: -1,
+    shadowColor: '#14B8A6',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 4,
+    elevation: 4,
   },
   pitchLine: {
     position: 'absolute',
@@ -416,6 +435,11 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#ffcc00',
+    shadowColor: '#ffcc00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 6,
   },
   reticleRight: {
     width: 30,
@@ -428,12 +452,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   attValCard: {
-    backgroundColor: '#0a0a14',
-    borderRadius: 10,
+    backgroundColor: 'rgba(20,30,50,0.25)',
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#1a1a2a',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.1)',
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 6,
@@ -449,6 +473,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     flex: 1,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
   },
   attValUnit: {
     color: '#555',
@@ -463,11 +489,11 @@ const styles = StyleSheet.create({
   },
   speedCard: {
     flex: 1,
-    backgroundColor: '#0a0a14',
-    borderRadius: 12,
+    backgroundColor: 'rgba(20,30,50,0.25)',
+    borderRadius: 16,
     padding: 14,
-    borderWidth: 1,
-    borderColor: '#1a1a2a',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.1)',
     gap: 4,
   },
   speedLabel: {
@@ -477,9 +503,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   speedValue: {
-    color: '#00ff88',
+    color: '#14B8A6',
     fontSize: 26,
     fontWeight: '900',
+    textShadowColor: '#14B8A6',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
   },
   speedUnit: {
     color: '#444',
@@ -488,8 +517,8 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   speedBar: {
-    height: 3,
-    backgroundColor: '#0d0d1a',
+    height: 4,
+    backgroundColor: 'rgba(13,13,26,0.6)',
     borderRadius: 2,
     overflow: 'hidden',
   },
@@ -500,10 +529,10 @@ const styles = StyleSheet.create({
 
   // ── POSICIÓN ──
   dataContainer: {
-    backgroundColor: '#0a0a14',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#1a1a2a',
+    backgroundColor: 'rgba(20,30,50,0.25)',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.1)',
     overflow: 'hidden',
   },
   dataRow: {
@@ -512,8 +541,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#0d0d1a',
+    borderBottomWidth: 1.5,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   rowLabel: {
     color: '#555',
@@ -523,7 +552,7 @@ const styles = StyleSheet.create({
   rowValue: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#00ff88',
+    color: '#14B8A6',
   },
   rowUnit: {
     fontSize: 10,
@@ -533,11 +562,11 @@ const styles = StyleSheet.create({
 
   // ── BATERÍA ──
   batteryCard: {
-    backgroundColor: '#0a0a14',
-    borderRadius: 12,
+    backgroundColor: 'rgba(20,30,50,0.25)',
+    borderRadius: 16,
     padding: 16,
-    borderWidth: 1,
-    borderColor: '#1a1a2a',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   batteryTopRow: {
     flexDirection: 'row',
@@ -549,6 +578,8 @@ const styles = StyleSheet.create({
     fontSize: 40,
     fontWeight: '900',
     letterSpacing: -1,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
   },
   batteryVoltage: {
     fontSize: 18,

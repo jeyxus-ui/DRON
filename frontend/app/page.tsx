@@ -11,7 +11,6 @@ export default function Home() {
   const [routes, setRoutes] = useState<any[]>([]);
 
   useEffect(() => {
-    // WebSocket para telemetría (backend en Raspberry 192.168.137.43)
     const ws = new WebSocket(WS_URL);
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -20,7 +19,6 @@ export default function Home() {
     ws.onopen = () => console.log('Connected to WebSocket');
     ws.onclose = () => console.log('WebSocket closed');
 
-    // Fetch para datos estáticos
     fetch(`${API_URL}/drones`).then(res => res.json()).then(setDrones);
     fetch(`${API_URL}/missions`).then(res => res.json()).then(setMissions);
     fetch(`${API_URL}/users`).then(res => res.json()).then(setUsers);
