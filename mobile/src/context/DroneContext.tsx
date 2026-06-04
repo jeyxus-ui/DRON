@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { API_URL, WS_URL } from '../config';
+import { getWsUrl, getApiUrl, setHostIp } from '../config';
+import { getStoredIp } from '../utils/ipConfig';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 
@@ -32,21 +33,23 @@ export interface CommandResult {
 }
 
 interface DroneContextType {
-  telemetry:    Telemetry;
-  connected:    boolean;
-  demoMode:     boolean;
-  sendCommand:  (type: string, params?: any) => Promise<CommandResult>;
-  armDrone:     () => Promise<CommandResult>;
-  disarmDrone:  () => Promise<CommandResult>;
-  takeoff:      (altitude: number) => Promise<CommandResult>;
-  land:         () => Promise<CommandResult>;
-  emergency:    (action: 'STOP' | 'RTL' | 'LAND') => Promise<CommandResult>;
-  setJoystick:  (throttle?: number, yaw?: number, pitch?: number, roll?: number) => void;
+  telemetry:       Telemetry;
+  connected:       boolean;
+  demoMode:        boolean;
+  sendCommand:     (type: string, params?: any) => Promise<CommandResult>;
+  armDrone:        () => Promise<CommandResult>;
+  disarmDrone:     () => Promise<CommandResult>;
+  takeoff:         (altitude: number) => Promise<CommandResult>;
+  land:            () => Promise<CommandResult>;
+  emergency:       (action: 'STOP' | 'RTL' | 'LAND') => Promise<CommandResult>;
+  setJoystick:     (throttle?: number, yaw?: number, pitch?: number, roll?: number) => void;
   // Navegación autónoma
-  navGoto:      (lat: number, lon: number, alt?: number) => Promise<CommandResult>;
-  navMission:   (waypoints: any[]) => Promise<CommandResult>;
-  navStop:      () => Promise<CommandResult>;
-  setAvoidance: (active: boolean) => Promise<CommandResult>;
+  navGoto:         (lat: number, lon: number, alt?: number) => Promise<CommandResult>;
+  navMission:      (waypoints: any[]) => Promise<CommandResult>;
+  navStop:         () => Promise<CommandResult>;
+  setAvoidance:    (active: boolean) => Promise<CommandResult>;
+  // IP dinámica
+  forceReconnect:  () => void;
 }
 
 const DroneContext = createContext<DroneContextType | undefined>(undefined);
@@ -171,12 +174,33 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, []);
 
+  // ── Forzar reconexión (al cambiar IP) ────────────────────────────────────
+
+  const forceReconnect = useCallback(() => {
+    console.log('[WS] 🔄 Forzando reconexión...');
+    if (reconnectTimeout.current) {
+      clearTimeout(reconnectTimeout.current);
+      reconnectTimeout.current = null;
+    }
+    if (ws.current) {
+      ws.current.onclose = null;
+      ws.current.close();
+      ws.current = null;
+    }
+    setConnected(false);
+    startDemo();
+    setTimeout(() => {
+      connectWebSocket();
+    }, 1000);
+  }, [startDemo]);
+
   // ── WebSocket ────────────────────────────────────────────────────────────
 
   const connectWebSocket = useCallback(() => {
     try {
-      console.log(`[WS] Conectando a ${WS_URL}...`);
-      const newWs = new WebSocket(WS_URL);
+      const url = getWsUrl();
+      console.log(`[WS] Conectando a ${url}...`);
+      const newWs = new WebSocket(url);
 
       newWs.onopen = () => {
         console.log('[WS] ✅ Conexión establecida');
@@ -244,7 +268,11 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     mountedRef.current = true;
-    connectWebSocket();
+    (async () => {
+      const savedIp = await getStoredIp();
+      setHostIp(savedIp);
+      connectWebSocket();
+    })();
     const fallbackTimer = setTimeout(() => {
       if (ws.current?.readyState !== WebSocket.OPEN) startDemo();
     }, 5000);
@@ -456,6 +484,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       demoMode,
       sendCommand,
       armDrone,
+      disarmDrone,
       takeoff,
       land,
       emergency,
@@ -464,6 +493,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       navMission,
       navStop,
       setAvoidance,
+      forceReconnect,
     }}>
       {children}
     </DroneContext.Provider>

@@ -16,7 +16,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Joystick } from '../components/Joystick';
 import { useDrone } from '../context/DroneContext';
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
-import { API_URL } from '../config';
+import { STATIC_API_URL, setHostIp } from '../config';
+import { getStoredIp } from '../utils/ipConfig';
+import { IpConfigModal } from '../components/IpConfigModal';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const JOYSTICK_SIZE = SCREEN_WIDTH * 0.18;
@@ -60,13 +62,18 @@ const MODE_GROUPS = [
 ];
 
 export const DroneControlScreen: React.FC = () => {
-  const { telemetry, connected, demoMode, armDrone, disarmDrone, setJoystick, sendCommand } =
+  const { telemetry, connected, demoMode, armDrone, disarmDrone, setJoystick, sendCommand, forceReconnect } =
     useDrone();
   const insets = useSafeAreaInsets();
 
   const deviceLoc = useDeviceLocation();
 
   const [cameraOk, setCameraOk] = useState(true);
+  const [ipModalVisible, setIpModalVisible] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectedRef = useRef(connected);
+  connectedRef.current = connected;
 
   // simulated telemetry for fallback / smooth display
   const [sim, setSim] = useState({ spd: 0, alt: 0, bat: 100, yaw: 0, vs: 0 });
@@ -83,7 +90,10 @@ export const DroneControlScreen: React.FC = () => {
       };
       setSim({ ...simRef.current });
     }, 1000);
-    return () => clearInterval(t);
+    return () => {
+      clearInterval(t);
+      if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    };
   }, []);
 
   const getSpd = () => telemetry?.ground_speed ?? sim.spd;
@@ -253,6 +263,9 @@ export const DroneControlScreen: React.FC = () => {
           <Text style={styles.logoSub}>v1.0</Text>
         </View>
         <View style={styles.headerRight}>
+          <TouchableOpacity onPress={() => setIpModalVisible(true)} activeOpacity={0.6} style={styles.ipBtn}>
+            <Text style={styles.ipBtnIcon}>⚙</Text>
+          </TouchableOpacity>
           <Text style={styles.headerTime}>{new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</Text>
           <TouchableOpacity
             style={[styles.headerArmBtn, telemetry?.armed ? styles.headerArmBtnArmed : { borderColor: AMBER + '60' }]}
@@ -271,7 +284,7 @@ export const DroneControlScreen: React.FC = () => {
       <View style={styles.cameraSection}>
         <View style={styles.cameraContainer}>
           <WebView
-            source={{ uri: `${API_URL}/api/camera/view` }}
+            source={{ uri: `${STATIC_API_URL}/api/camera/view` }}
             style={styles.cameraFeed}
             scrollEnabled={false}
             bounces={false}
@@ -562,6 +575,34 @@ export const DroneControlScreen: React.FC = () => {
           <View style={{ height: 32 }} />
         </ScrollView>
       </Animated.View>
+
+      {/* ── TOAST ── */}
+      {toastMsg !== '' && (
+        <View style={styles.toast}>
+          <Text style={styles.toastText}>{toastMsg}</Text>
+        </View>
+      )}
+
+      <IpConfigModal
+        visible={ipModalVisible}
+        onClose={async (changed) => {
+          setIpModalVisible(false);
+          if (changed) {
+            const savedIp = await getStoredIp();
+            setHostIp(savedIp);
+            forceReconnect();
+            setToastMsg(`🔄 Reconectando a ${savedIp}:8000…`);
+            if (toastTimeout.current) clearTimeout(toastTimeout.current);
+            toastTimeout.current = setTimeout(() => {
+              const ok = connectedRef.current;
+              setToastMsg(ok
+                ? `✓ Conectado a ${savedIp}`
+                : `✕ Error — no hay servidor en ${savedIp}:8000`);
+              setTimeout(() => setToastMsg(''), 4000);
+            }, 5000);
+          }
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -585,6 +626,8 @@ const styles = StyleSheet.create({
   logoSub: { color: LABEL, fontSize: 10, fontWeight: '600' },
   headerTime: { color: AMBER, fontSize: 14, fontWeight: '700', fontFamily: 'monospace', textShadowColor: AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  ipBtn: { padding: 4 },
+  ipBtnIcon: { fontSize: 16, color: LABEL },
   headerArmBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     borderWidth: 1.5, borderRadius: 8,
@@ -746,4 +789,15 @@ const styles = StyleSheet.create({
   batteryV: { fontSize: 14, fontWeight: '700' },
   batteryBar: { height: 8, backgroundColor: '#0d0d1a', borderRadius: 4, overflow: 'hidden' },
   batteryFill: { height: '100%', borderRadius: 4 },
+
+  // ── TOAST ──
+  toast: {
+    position: 'absolute', bottom: 60, left: 20, right: 20,
+    backgroundColor: 'rgba(10,15,25,0.95)',
+    borderWidth: 1, borderColor: AMBER + '66',
+    borderRadius: 12, paddingVertical: 8, paddingHorizontal: 16,
+    alignItems: 'center', zIndex: 100,
+    shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 8,
+  },
+  toastText: { color: '#fff', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
 });
