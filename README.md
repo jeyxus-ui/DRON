@@ -63,6 +63,4 @@ back-mavlink/
 └── raspberry/        # Despliegue Raspberry Pi
 ```
 
-## Contacto
 
-Proyecto universitario - Mayo 2026
