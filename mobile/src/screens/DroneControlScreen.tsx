@@ -74,6 +74,7 @@ export const DroneControlScreen: React.FC = () => {
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectedRef = useRef(connected);
   connectedRef.current = connected;
+  const webViewRef = useRef<WebView>(null);
 
   // simulated telemetry for fallback / smooth display
   const [sim, setSim] = useState({ spd: 0, alt: 0, bat: 100, yaw: 0, vs: 0 });
@@ -283,23 +284,31 @@ export const DroneControlScreen: React.FC = () => {
       {/* ── CAMERA + CROSSHAIR + METRICS OVERLAY ── */}
       <View style={styles.cameraSection}>
         <View style={styles.cameraContainer}>
-          <WebView
-            source={{ uri: `${STATIC_API_URL}/api/camera/view` }}
-            style={styles.cameraFeed}
-            scrollEnabled={false}
-            bounces={false}
-            javaScriptEnabled={true}
-            mediaPlaybackRequiresUserAction={false}
-            allowsInlineMediaPlayback={true}
-            onError={() => setCameraOk(false)}
-            onHttpError={() => setCameraOk(false)}
-            onLoad={() => setCameraOk(true)}
-          />
-          {!cameraOk && (
-            <View style={styles.cameraOverlay}>
-              <Text style={styles.cameraOverlayIcon}>CAM</Text>
-              <Text style={styles.cameraOverlayText}>SEÑAL DE VIDEO NO DISPONIBLE</Text>
-              <Text style={styles.cameraOverlaySub}>Verificando conexión de cámara...</Text>
+          {cameraOk ? (
+            <WebView
+              ref={webViewRef}
+              source={{ uri: `${STATIC_API_URL}/api/camera/view` }}
+              style={styles.cameraFeed}
+              scrollEnabled={false}
+              bounces={false}
+              javaScriptEnabled={true}
+              mediaPlaybackRequiresUserAction={false}
+              allowsInlineMediaPlayback={true}
+              onError={() => setCameraOk(false)}
+              onHttpError={() => setCameraOk(false)}
+              onLoad={() => setCameraOk(true)}
+            />
+          ) : (
+            <View style={styles.cameraOff}>
+              <Text style={styles.cameraOffIcon}>CAM</Text>
+              <Text style={styles.cameraOffText}>DESCONECTADO</Text>
+              <TouchableOpacity
+                style={styles.retryBtn}
+                onPress={() => { setCameraOk(true); webViewRef.current?.reload(); }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.retryBtnText}>REINTENTAR</Text>
+              </TouchableOpacity>
             </View>
           )}
           {/* Crosshair */}
@@ -649,14 +658,18 @@ const styles = StyleSheet.create({
   cameraSection: { height: SCREEN_HEIGHT * 0.35, borderWidth: 1.5, borderColor: GLASS_BORDER, borderRadius: 14, marginHorizontal: 2, overflow: 'hidden' },
   cameraContainer: { flex: 1, backgroundColor: '#000', position: 'relative' },
   cameraFeed: { width: '100%', height: '100%', backgroundColor: 'transparent' },
-  cameraOverlay: {
-    position: 'absolute', width: '100%', height: '100%',
-    justifyContent: 'center', alignItems: 'center',
-    backgroundColor: GLASS, gap: 4,
+  cameraOff: {
+    flex: 1, justifyContent: 'center', alignItems: 'center',
+    backgroundColor: '#050508', gap: 12,
   },
-  cameraOverlayIcon: { fontSize: 24, color: LABEL, fontWeight: '900', letterSpacing: 2 },
-  cameraOverlayText: { color: '#444', fontSize: 10, fontWeight: '800', letterSpacing: 2 },
-  cameraOverlaySub: { color: '#333', fontSize: 8, fontWeight: '600', letterSpacing: 1 },
+  cameraOffIcon: { fontSize: 28, color: '#333', fontWeight: '900', letterSpacing: 2 },
+  cameraOffText: { color: '#555', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  retryBtn: {
+    borderWidth: 1.5, borderColor: AMBER + '66',
+    borderRadius: 10, paddingHorizontal: 20, paddingVertical: 8,
+    backgroundColor: AMBER + '15',
+  },
+  retryBtnText: { color: AMBER, fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
 
   // ── Crosshair ──
   crosshairContainer: {
