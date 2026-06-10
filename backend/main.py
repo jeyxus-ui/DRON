@@ -5,7 +5,12 @@ import logging
 
 from backend.api import rest, websocket, camera_stream
 from backend.config import API_HOST, API_PORT, LOG_LEVEL, MAVLINK_BAUD, detect_mavlink_device
-from sqlalchemy import text 
+try:
+    from sqlalchemy import text
+except ImportError:
+    text = lambda x: x
+    logger = logging.getLogger(__name__)
+    logger.warning("SQLAlchemy no instalado, funciones de BD deshabilitadas")
 
 logging.basicConfig(
     level=LOG_LEVEL,
