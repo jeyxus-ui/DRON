@@ -1,0 +1,31 @@
+=== PRUEBA DE VUELO — 16 JUN 2026, 19:46 Bogotá ===
+
+Modo: STABILIZE
+Throttle: 50% (PWM 1500)
+Ubicación: Bogotá (altitud ~2600m)
+Duración: ~8-10s armado
+
+Datos de telemetría:
+
+| Tiempo | Armed | Altitud | V. vertical | V. suelo | Batería | Yaw   | GPS       |
+|--------|-------|---------|-------------|----------|---------|-------|-----------|
+| t=1s   | true  | 2636.58m| -1.55 m/s   | 0.43 m/s | 38.93V  | 31.99°| 7 sats    |
+| t=4s   | true  | 2633.68m| -1.56 m/s   | 1.07 m/s | 38.85V  | 32.22°| 6 sats    |
+| t=7s   | true  | 2631.16m| -1.57 m/s   | 0.87 m/s | 38.84V  | 32.54°| 6 sats    |
+
+LiDAR: 400 pts/scan, obstáculo más cercano a 0.43m
+YDLIDAR X4 conectado en /dev/ttyUSB1 (auto-detectado)
+
+Observaciones:
+- Desciende incluso a 50% throttle por aire enrarecido (2600m)
+- Velocidad vertical constante: -1.55 m/s
+- Auto-disarm después de ~10s
+- Batería: 38.93V → 38.84V en 7s
+
+Hardware:
+- Pixhawk 6C en /dev/ttyACM0 @ 57600 baud
+- YDLIDAR X4 en /dev/ttyUSB1 @ 115200 baud
+- GPS M10: 6-7 satélites, hdop 1.55-1.96
+- RPi conectado vía WiFi 172.20.10.2
+
+APK: compilado con IP 172.20.10.2 en mobile/android/app/build/outputs/apk/release/app-release.apk
