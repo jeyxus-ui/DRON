@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Joystick } from '../components/Joystick';
 import { useDrone } from '../context/DroneContext';
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
-import { STATIC_API_URL, setHostIp } from '../config';
+import { STATIC_API_URL, setHostIp, getHostIp } from '../config';
 import { getStoredIp } from '../utils/ipConfig';
 import { IpConfigModal } from '../components/IpConfigModal';
 
@@ -287,7 +287,7 @@ export const DroneControlScreen: React.FC = () => {
           {cameraOk ? (
             <WebView
               ref={webViewRef}
-              source={{ uri: `${STATIC_API_URL}/api/camera/view` }}
+              source={{ uri: `http://${getHostIp()}:8000/api/camera/view` }}
               style={styles.cameraFeed}
               scrollEnabled={false}
               bounces={false}
