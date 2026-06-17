@@ -44,11 +44,33 @@ class YDLidarX4(BaseSensor):
         self._running = ok
         return ok
 
+    def _find_port(self) -> str:
+        if os.path.exists(self.port):
+            return self.port
+        base = os.path.dirname(self.port)
+        if not os.path.isdir(base):
+            return ''
+        for f in sorted(os.listdir(base)):
+            path = os.path.join(base, f)
+            if f.startswith('ttyUSB') and os.path.exists(path):
+                try:
+                    import serial
+                    s = serial.Serial(port=path, baudrate=LIDAR_BAUD, timeout=0.5)
+                    s.close()
+                    logger.info('[YDLIDAR] Puerto detectado: %s', path)
+                    return path
+                except Exception:
+                    continue
+        return ''
+
     def _try_connect(self) -> bool:
-        if not os.path.exists(self.port):
-            self._log_error_rate_limited(f'Puerto {self.port} no existe')
+        port = self._find_port()
+        if not port:
+            self._log_error_rate_limited(f'Puerto {self.port} no disponible')
             self._is_dead = True
             return False
+        if port != self.port:
+            self.port = port
         try:
             import serial
             if self._serial:
