@@ -1,25 +1,18 @@
-"""
-YDLIDAR X4PRO 360° laser scanner.
-Real: connects via USB serial (115200 baud), uses YDLIDAR SDK protocol.
-Sim: generates realistic 360° scans with simulated obstacles.
-
-Specs:
-- Range: 0.12m - 10m
-- Scan rate: 5-12 Hz
-- Angular resolution: ~0.5°
-- 360° FOV
-"""
 import logging
 import math
 import random
 import time
+import os
 from .base import BaseSensor, LidarScan, LidarPoint
 
 logger = logging.getLogger(__name__)
 
 LIDAR_BAUD = 115200
-LIDAR_TIMEOUT = 2.0
+LIDAR_TIMEOUT = 1.0
 POINTS_PER_SCAN = 720
+RETRY_INTERVAL = 5.0
+MAX_CONSECUTIVE_ERRORS = 10
+LOG_SUPPRESS_SECONDS = 5.0
 
 
 class YDLidarX4(BaseSensor):
@@ -30,6 +23,10 @@ class YDLidarX4(BaseSensor):
         self._sim_obstacles = []
         self._sim_start = 0.0
         self._last_scan = LidarScan(timestamp=time.time(), valid=False)
+        self._is_dead = False
+        self._consecutive_errors = 0
+        self._last_error_log = 0.0
+        self._last_retry = 0.0
 
     def start(self) -> bool:
         if self.sim_mode:
@@ -43,32 +40,52 @@ class YDLidarX4(BaseSensor):
             ]
             self._running = True
             return True
+        ok = self._try_connect()
+        self._running = ok
+        return ok
+
+    def _try_connect(self) -> bool:
+        if not os.path.exists(self.port):
+            self._log_error_rate_limited(f'Puerto {self.port} no existe')
+            self._is_dead = True
+            return False
         try:
             import serial
+            if self._serial:
+                try:
+                    self._serial.close()
+                except Exception:
+                    pass
+                self._serial = None
             self._serial = serial.Serial(
                 port=self.port,
                 baudrate=LIDAR_BAUD,
                 timeout=LIDAR_TIMEOUT,
             )
-            self._running = True
+            self._is_dead = False
+            self._consecutive_errors = 0
             logger.info('[YDLIDAR] Conectado en %s a %d baud', self.port, LIDAR_BAUD)
             return True
         except ImportError:
             logger.error('[YDLIDAR] pyserial no disponible')
             return False
         except Exception as e:
-            logger.error('[YDLIDAR] Error conectando: %s', e)
+            self._log_error_rate_limited(f'Error conectando: {e}')
             self._error_count += 1
+            self._is_dead = True
             return False
 
     def stop(self):
         self._running = False
-        if self._serial:
-            try:
-                self._serial.close()
-            except Exception:
-                pass
-            self._serial = None
+        ser = self._serial
+        if ser:
+                s = self._serial
+                if s:
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+                self._serial = None
         logger.info('[YDLIDAR] Detenido')
 
     def read(self) -> LidarScan:
@@ -107,7 +124,18 @@ class YDLidarX4(BaseSensor):
         )
 
     def _real_scan(self, t: float) -> LidarScan:
+        if self._is_dead:
+            if t - self._last_retry > RETRY_INTERVAL:
+                self._last_retry = t
+                ok = self._try_connect()
+                if not ok:
+                    return LidarScan(timestamp=t, valid=False)
+            else:
+                return LidarScan(timestamp=t, valid=False)
+
         try:
+            if self._serial is None:
+                return LidarScan(timestamp=t, valid=False)
             raw = self._serial.read(2000)
             points = []
             for i in range(0, len(raw) - 4, 5):
@@ -122,11 +150,31 @@ class YDLidarX4(BaseSensor):
                         distance_m=dist_mm / 1000.0,
                         quality=quality,
                     ))
+            self._consecutive_errors = 0
             return LidarScan(timestamp=t, valid=len(points) > 0, points=points)
         except Exception as e:
-            logger.error('[YDLIDAR] Error en escaneo: %s', e)
+            self._consecutive_errors += 1
             self._error_count += 1
+            if self._consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                if not self._is_dead:
+                    logger.error('[YDLIDAR] Demasiados errores consecutivos — sensor desactivado')
+                    self._is_dead = True
+                s = self._serial
+                if s:
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+                self._serial = None
+            else:
+                self._log_error_rate_limited(f'Error en escaneo: {e}')
             return LidarScan(timestamp=t, valid=False)
+
+    def _log_error_rate_limited(self, msg: str):
+        now = time.time()
+        if now - self._last_error_log > LOG_SUPPRESS_SECONDS:
+            logger.error('[YDLIDAR] %s', msg)
+            self._last_error_log = now
 
     def get_scan(self) -> LidarScan:
         return self._last_scan
