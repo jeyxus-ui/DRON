@@ -23,7 +23,7 @@ POINTS_PER_SCAN = 720
 
 
 class YDLidarX4(BaseSensor):
-    def __init__(self, sim_mode: bool = True, port: str = '/dev/ttyUSB1'):
+    def __init__(self, sim_mode: bool = True, port: str = '/dev/ttyUSB0'):
         super().__init__('YDLIDAR_X4', sim_mode)
         self.port = port
         self._serial = None
