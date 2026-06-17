@@ -1,7 +1,7 @@
 import RNFS from 'react-native-fs';
 
 const CONFIG_FILE = `${RNFS.DocumentDirectoryPath}/GCS/config.json`;
-const DEFAULT_IP = '192.168.137.121';
+const DEFAULT_IP = '172.20.10.2';
 
 let cachedIp: string | null = null;
 

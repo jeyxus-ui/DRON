@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Joystick } from '../components/Joystick';
 import { useDrone } from '../context/DroneContext';
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
-import { STATIC_API_URL, setHostIp, getHostIp } from '../config';
+import { setHostIp, getHostIp } from '../config';
 import { getStoredIp } from '../utils/ipConfig';
 import { IpConfigModal } from '../components/IpConfigModal';
 
