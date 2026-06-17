@@ -116,18 +116,26 @@ class VisionDetector:
         self.frame_width = 640
         self.frame_height = 480
         self._model = None
-        self._load_model()
+        self._model_ready = False
+        self._start_model_load()
 
-    def _load_model(self):
+    def _start_model_load(self):
         try:
             from ultralytics import YOLO
             import os
+            import threading
             model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'assets', 'models', 'yolov8n.pt')
-            self._model = YOLO(model_path)
-            logger.info("YOLOv8n model loaded")
-        except Exception as e:
-            logger.error(f"Failed to load YOLO model: {e}")
-            self._model = None
+            def _load():
+                try:
+                    self._model = YOLO(model_path)
+                    self._model_ready = True
+                    logger.info("YOLOv8n model loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load YOLO model: {e}")
+            t = threading.Thread(target=_load, daemon=True)
+            t.start()
+        except ImportError:
+            logger.warning("ultralytics no instalado, detección YOLO deshabilitada")
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
         if frame is None or self._model is None:
