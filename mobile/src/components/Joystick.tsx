@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Dimensions, PanResponder, Animated } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, GestureResponderEvent } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -11,7 +11,7 @@ interface JoystickProps {
   smoothing?:      boolean;
   deadzoneX?:      number;
   deadzoneY?:      number;
-  resetToBottom?:  boolean; // pulso para resetear throttle al fondo (al armar)
+  resetToBottom?:  boolean;
 }
 
 export const Joystick: React.FC<JoystickProps> = ({
@@ -27,20 +27,70 @@ export const Joystick: React.FC<JoystickProps> = ({
   const stickR  = size / 4;
   const maxDist = size / 2 - stickR;
 
-  // mode2: throttle inicia abajo (maxDist), persiste al soltar
   const initY = mode === 'mode2' ? maxDist : 0;
 
   const animX       = useRef(new Animated.Value(0)).current;
   const animY       = useRef(new Animated.Value(initY)).current;
   const throttleRef = useRef(initY);
+  const touchId     = useRef<number | null>(null);
+  const viewRef     = useRef<View>(null);
 
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
-  const notify = useCallback((x: number, y: number) => {
-    onMove(x, y);
-  }, [onMove]);
+  const normalize = useCallback((px: number, py: number) => {
+    if (mode === 'mode2') {
+      let ty = clamp(py, -maxDist, maxDist);
+      const maxX = Math.sqrt(Math.max(0, maxDist * maxDist - ty * ty));
+      let tx = clamp(px, -maxX, maxX);
 
-  // ── Reset al fondo cuando se arma el dron ──────────────────────────────────
+      animX.setValue(tx);
+      animY.setValue(ty);
+
+      let yawNorm      = tx / maxDist;
+      let throttleNorm = (maxDist - ty) / (2 * maxDist);
+      if (Math.abs(yawNorm) < deadzoneX)      yawNorm = 0;
+      if (throttleNorm < deadzoneY) throttleNorm = 0;
+
+      onMove(yawNorm, throttleNorm);
+    } else {
+      let tx = mode === 'vertical'   ? 0 : px;
+      let ty = mode === 'horizontal' ? 0 : py;
+
+      const dist = Math.sqrt(tx * tx + ty * ty);
+      if (dist > maxDist) {
+        const angle = Math.atan2(ty, tx);
+        tx = Math.cos(angle) * maxDist;
+        ty = Math.sin(angle) * maxDist;
+      }
+
+      animX.setValue(tx);
+      animY.setValue(ty);
+
+      let nx =  tx / maxDist;
+      let ny = -ty / maxDist;
+      if (Math.abs(nx) < deadzoneX) nx = 0;
+      if (Math.abs(ny) < deadzoneY) ny = 0;
+
+      onMove(nx, ny);
+    }
+  }, [mode, maxDist, deadzoneX, deadzoneY, animX, animY, onMove]);
+
+  const resetStick = useCallback(() => {
+    if (mode === 'mode2') {
+      const currentY = (animY as any)._value;
+      throttleRef.current = currentY;
+      Animated.spring(animX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }).start();
+      const tn = (maxDist - currentY) / (2 * maxDist);
+      onMove(0, tn < deadzoneY ? 0 : tn);
+    } else {
+      Animated.parallel([
+        Animated.spring(animX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
+        Animated.spring(animY, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
+      ]).start();
+      onMove(0, 0);
+    }
+  }, [mode, maxDist, deadzoneY, animX, animY, onMove]);
+
   useEffect(() => {
     if (mode === 'mode2' && resetToBottom) {
       animX.stopAnimation();
@@ -48,117 +98,66 @@ export const Joystick: React.FC<JoystickProps> = ({
       Animated.spring(animX, { toValue: 0,       useNativeDriver: true, tension: 150, friction: 10 }).start();
       Animated.spring(animY, { toValue: maxDist, useNativeDriver: true, tension: 150, friction: 10 }).start();
       throttleRef.current = maxDist;
-      notify(0, 0); // throttle 0 al armar
+      onMove(0, 0);
     }
   }, [resetToBottom]);
 
-  const panResponder = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder:  () => true,
+  const handleTouchStart = useCallback((e: GestureResponderEvent) => {
+    if (touchId.current !== null) return;
+    const touch = e.nativeEvent.touches[0] || e.nativeEvent.changedTouches[0];
+    if (!touch) return;
+    touchId.current = touch.identifier;
 
-    onPanResponderGrant: () => {
-      animX.stopAnimation();
-      animY.stopAnimation();
-      if (mode === 'mode2') {
-        throttleRef.current = (animY as any)._value;
-      }
-    },
+    viewRef.current?.measureInWindow((wx, wy, w, h) => {
+      const cx = wx + w / 2;
+      const cy = wy + h / 2;
+      const px = touch.pageX - cx;
+      const py = touch.pageY - cy;
+      normalize(px, py);
+    });
+  }, [normalize]);
 
-    onPanResponderMove: (_, g) => {
-      if (mode === 'mode2') {
-        // Y relativo a donde estaba el throttle
-        let ty = clamp(throttleRef.current + g.dy, -maxDist, maxDist);
-        const maxX = Math.sqrt(Math.max(0, maxDist * maxDist - ty * ty));
-        let tx = clamp(g.dx, -maxX, maxX);
+  const handleTouchMove = useCallback((e: GestureResponderEvent) => {
+    const touches: any[] = [];
+    if (e.nativeEvent.touches) touches.push(...e.nativeEvent.touches);
+    if (e.nativeEvent.changedTouches) touches.push(...e.nativeEvent.changedTouches);
+    const touch = touches.find(t => t.identifier === touchId.current);
+    if (!touch) return;
 
-        animX.setValue(tx);
-        animY.setValue(ty);
+    viewRef.current?.measureInWindow((wx, wy, w, h) => {
+      const cx = wx + w / 2;
+      const cy = wy + h / 2;
+      const px = touch.pageX - cx;
+      const py = touch.pageY - cy;
+      normalize(px, py);
+    });
+  }, [normalize]);
 
-        // Normalizar: x = yaw (-1..1), y = throttle (0..1)
-        let yawNorm      = tx / maxDist;
-        let throttleNorm = (maxDist - ty) / (2 * maxDist); // abajo=0, arriba=1
-        if (Math.abs(yawNorm) < deadzoneX) yawNorm = 0;
-        if (throttleNorm < deadzoneY)       throttleNorm = 0;
+  const handleTouchEnd = useCallback((e: GestureResponderEvent) => {
+    const touches: any[] = [];
+    if (e.nativeEvent.touches) touches.push(...e.nativeEvent.touches);
+    if (e.nativeEvent.changedTouches) touches.push(...e.nativeEvent.changedTouches);
+    const stillActive = touches.some(t => t.identifier === touchId.current);
+    if (stillActive) return;
+    touchId.current = null;
+    resetStick();
+  }, [resetStick]);
 
-        notify(yawNorm, throttleNorm);
-
-      } else {
-        let tx = mode === 'vertical'   ? 0 : g.dx;
-        let ty = mode === 'horizontal' ? 0 : g.dy;
-
-        const dist = Math.sqrt(tx * tx + ty * ty);
-        if (dist > maxDist) {
-          const angle = Math.atan2(ty, tx);
-          tx = Math.cos(angle) * maxDist;
-          ty = Math.sin(angle) * maxDist;
-        }
-
-        animX.setValue(tx);
-        animY.setValue(ty);
-
-        let nx =  tx / maxDist;
-        let ny = -ty / maxDist;
-        if (Math.abs(nx) < deadzoneX) nx = 0;
-        if (Math.abs(ny) < deadzoneY) ny = 0;
-
-        notify(nx, ny);
-      }
-    },
-
-    onPanResponderRelease: () => {
-      if (mode === 'mode2') {
-        // Guardar posición Y actual — throttle se QUEDA donde está
-        const currentY = (animY as any)._value;
-        throttleRef.current = currentY;
-        animX.stopAnimation();
-        animY.stopAnimation();
-        // Solo X (yaw) vuelve al centro
-        Animated.spring(animX, {
-          toValue: 0, useNativeDriver: true, tension: 150, friction: 10,
-        }).start();
-        const throttleNorm = (maxDist - currentY) / (2 * maxDist);
-        notify(0, throttleNorm < deadzoneY ? 0 : throttleNorm);
-      } else {
-        // Joystick derecho: ambos ejes vuelven al centro
-        Animated.parallel([
-          Animated.spring(animX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
-          Animated.spring(animY, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
-        ]).start();
-        notify(0, 0);
-      }
-    },
-
-    onPanResponderTerminate: () => {
-      if (mode === 'mode2') {
-        const currentY = (animY as any)._value;
-        throttleRef.current = currentY;
-        animX.stopAnimation();
-        animY.stopAnimation();
-        Animated.spring(animX, {
-          toValue: 0, useNativeDriver: true, tension: 150, friction: 10,
-        }).start();
-        const throttleNorm = (maxDist - currentY) / (2 * maxDist);
-        notify(0, throttleNorm < deadzoneY ? 0 : throttleNorm);
-      } else {
-        Animated.parallel([
-          Animated.spring(animX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
-          Animated.spring(animY, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
-        ]).start();
-        notify(0, 0);
-      }
-    },
-  })).current;
-
-  // Barra de throttle animada (mode2)
-  // ⚠️ 'height' no es soportado por useNativeDriver — usamos scaleY en su lugar
   const throttleBarScale = animY.interpolate({
     inputRange:  [-maxDist, maxDist],
-    outputRange: [1, 0],        // arriba=escala 1 (lleno), abajo=escala 0 (vacío)
+    outputRange: [1, 0],
     extrapolate: 'clamp',
   });
 
   return (
-    <View style={[styles.root, { width: size, height: size }]}>
+    <View
+      ref={viewRef}
+      style={[styles.root, { width: size, height: size }]}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+    >
       <View style={[styles.base, {
         width: size, height: size,
         borderRadius: size / 2,
@@ -186,7 +185,6 @@ export const Joystick: React.FC<JoystickProps> = ({
       </View>
 
       <Animated.View
-        {...panResponder.panHandlers}
         style={[
           styles.stick,
           {
@@ -236,10 +234,8 @@ const styles = StyleSheet.create({
   },
   throttleFill: {
     width:        '100%',
-    height:       '100%',   // ocupa todo — scaleY lo reduce desde el centro
+    height:       '100%',
     borderRadius: 2,
-    // transformOrigin no existe en RN, pero scaleY desde height:100% + overflow hidden
-    // da el efecto correcto de barra que crece desde abajo
   },
 
   stick: {

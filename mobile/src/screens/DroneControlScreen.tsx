@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Joystick } from '../components/Joystick';
 import { useDrone } from '../context/DroneContext';
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
-import { setHostIp, getHostIp } from '../config';
+import { getApiUrl, setHostIp } from '../config';
 import { getStoredIp } from '../utils/ipConfig';
 import { IpConfigModal } from '../components/IpConfigModal';
 
@@ -68,13 +68,15 @@ export const DroneControlScreen: React.FC = () => {
 
   const deviceLoc = useDeviceLocation();
 
-  const [cameraOk, setCameraOk] = useState(true);
+  type CameraState = 'idle' | 'loading' | 'connected' | 'failed';
+  const [cameraState, setCameraState] = useState<CameraState>('idle');
+  const cameraKeyRef = useRef(0);
+  const webViewRef = useRef<WebView>(null);
   const [ipModalVisible, setIpModalVisible] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectedRef = useRef(connected);
   connectedRef.current = connected;
-  const webViewRef = useRef<WebView>(null);
 
   // simulated telemetry for fallback / smooth display
   const [sim, setSim] = useState({ spd: 0, alt: 0, bat: 100, yaw: 0, vs: 0 });
@@ -151,9 +153,6 @@ export const DroneControlScreen: React.FC = () => {
   const yaw = getYaw();
   const vs = getVs();
   const droneSat = telemetry?.satellites;
-  const gpsAccuracy = deviceLoc.location?.accuracy ?? null;
-  const gpsFix = gpsAccuracy !== null && gpsAccuracy < 50;
-  const gpsColor = gpsAccuracy !== null ? (gpsAccuracy < 10 ? AMBER : gpsAccuracy < 30 ? YELLOW : RED) : LABEL;
 
   const batColor = bat > 50 ? AMBER : bat > 20 ? YELLOW : RED;
   const altColor = alt > 0 ? AMBER : LABEL;
@@ -191,7 +190,7 @@ export const DroneControlScreen: React.FC = () => {
 
   const handleModeChange = (mode: string) => {
     const meta = getMeta(mode);
-    const gpsOk = droneSat ? droneSat >= 6 : (gpsAccuracy !== null && gpsAccuracy < 50);
+    const gpsOk = droneSat ? droneSat >= 6 : true;
     const gpsWarning =
       meta.requiresGPS && !gpsOk ? '\n⚠️ GPS insuficiente' : '';
     Alert.alert('Cambiar modo', `¿Cambiar a ${mode}?\n${meta.desc}${gpsWarning}`, [
@@ -237,8 +236,6 @@ export const DroneControlScreen: React.FC = () => {
     const map: Record<string, () => void> = {
       BRAKE: () => { closePanel(); runCommand(() => sendCommand('SET_MODE', { mode: 'BRAKE' })); },
       HOLD_POS: () => {
-        const gpsOk = droneSat ? droneSat >= 6 : (gpsAccuracy !== null && gpsAccuracy < 50);
-        if (!gpsOk) { Alert.alert('Sin GPS', 'GPS insuficiente para LOITER.'); return; }
         closePanel();
         runCommand(() => sendCommand('SET_MODE', { mode: 'LOITER' }));
       },
@@ -281,112 +278,84 @@ export const DroneControlScreen: React.FC = () => {
         </View>
       </View>
 
-      {/* ── CAMERA + CROSSHAIR + METRICS OVERLAY ── */}
+      {/* ── CAMERA + METRICS OVERLAY ── */}
       <View style={styles.cameraSection}>
         <View style={styles.cameraContainer}>
-          {cameraOk ? (
+          {cameraState === 'loading' ? (
+            <View style={styles.cameraOff}>
+              <Text style={styles.cameraOffIcon}>CAM</Text>
+              <Text style={styles.cameraConnecting}>CONECTANDO…</Text>
+            </View>
+          ) : cameraState === 'connected' ? (
             <WebView
               ref={webViewRef}
-              source={{ uri: `http://${getHostIp()}:8000/api/camera/view` }}
+              key={cameraKeyRef.current}
+              source={{ uri: `${getApiUrl()}/api/camera/view` }}
               style={styles.cameraFeed}
               scrollEnabled={false}
               bounces={false}
               javaScriptEnabled={true}
               mediaPlaybackRequiresUserAction={false}
               allowsInlineMediaPlayback={true}
-              onError={() => setCameraOk(false)}
-              onHttpError={() => setCameraOk(false)}
-              onLoad={() => setCameraOk(true)}
+              onError={() => setCameraState('failed')}
+              onHttpError={() => setCameraState('failed')}
+              onLoad={() => {}}
+              renderError={() => null}
             />
           ) : (
             <View style={styles.cameraOff}>
               <Text style={styles.cameraOffIcon}>CAM</Text>
-              <Text style={styles.cameraOffText}>DESCONECTADO</Text>
               <TouchableOpacity
                 style={styles.retryBtn}
-                onPress={() => { setCameraOk(true); webViewRef.current?.reload(); }}
+                onPress={() => {
+                  setCameraState('loading');
+                  fetch(`${getApiUrl()}/api/camera/view`, { method: 'HEAD', cache: 'no-store' })
+                    .then(r => {
+                      if (r.ok) { setCameraState('connected'); cameraKeyRef.current++; }
+                      else setCameraState('failed');
+                    })
+                    .catch(() => setCameraState('failed'));
+                }}
                 activeOpacity={0.7}
               >
                 <Text style={styles.retryBtnText}>REINTENTAR</Text>
               </TouchableOpacity>
             </View>
           )}
-          {/* Crosshair */}
-          <View style={styles.crosshairContainer}>
-            <View style={styles.crosshairH} />
-            <View style={styles.crosshairV} />
-            <View style={styles.crosshairCenter} />
-            <View style={[styles.corner, styles.cornerTL]} />
-            <View style={[styles.corner, styles.cornerTR]} />
-            <View style={[styles.corner, styles.cornerBL]} />
-            <View style={[styles.corner, styles.cornerBR]} />
-          </View>
-          {/* Status badges over camera */}
-          <View style={styles.cameraBadges}>
-            <View style={[styles.badge, { borderColor: cameraOk ? AMBER + 'AA' : RED + 'AA' }]}>
-              <Text style={[styles.badgeText, { color: cameraOk ? AMBER : RED, textShadowColor: cameraOk ? AMBER : RED, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>CAM {cameraOk ? 'OK' : 'OFF'}</Text>
-            </View>
-            <View style={[styles.badge, { borderColor: gpsColor + 'AA' }]}>
-              <Text style={[styles.badgeText, { color: gpsColor, textShadowColor: gpsColor, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 3 }]}>
-                GPS {gpsAccuracy !== null ? `${gpsAccuracy.toFixed(0)}m` : deviceLoc.authorized === false ? 'SIN PERMISO' : '...'}
-              </Text>
-            </View>
-            <View style={[styles.badge, { borderColor: LABEL + 'AA' }]}>
-              <Text style={[styles.badgeText, { color: LABEL }]}>HDOP {telemetry?.hdop?.toFixed(1) ?? '—'}</Text>
-            </View>
-            <View style={[styles.badge, { borderColor: connected ? AMBER + 'AA' : RED + 'AA' }]}>
-              <Text style={[styles.badgeText, { color: connected ? AMBER : RED, textShadowColor: connected ? AMBER : RED, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>
-                {connected ? 'TX/RX' : 'NO-LINK'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Metric chips overlay */}
-          <View style={styles.metricChips}>
-            <View style={[styles.chip, { borderColor: cameraOk ? AMBER + 'AA' : RED + 'AA' }]}>
-              <Text style={styles.chipLabel}>CAM</Text>
-              <Text style={[styles.chipValue, { color: cameraOk ? AMBER : RED, textShadowColor: cameraOk ? AMBER : RED, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{cameraOk ? 'OK' : 'OFF'}</Text>
-            </View>
-            <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
-              <Text style={styles.chipLabel}>SPD</Text>
-              <Text style={[styles.chipValue, { color: AMBER, textShadowColor: AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{spd.toFixed(1)}</Text>
-            </View>
-            <View style={[styles.chip, { borderColor: altColor + 'AA' }]}>
-              <Text style={styles.chipLabel}>ALT</Text>
-              <Text style={[styles.chipValue, { color: altColor, textShadowColor: altColor, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{alt.toFixed(1)}</Text>
-            </View>
-            <View style={[styles.chip, { borderColor: batColor + 'AA' }]}>
-              <Text style={styles.chipLabel}>BAT</Text>
-              <Text style={[styles.chipValue, { color: batColor, textShadowColor: batColor, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{bat.toFixed(0)}</Text>
-            </View>
-            <View style={[styles.chip, { borderColor: gpsColor + 'AA' }]}>
-              <Text style={styles.chipLabel}>ACC</Text>
-              <Text style={[styles.chipValue, { color: gpsColor, textShadowColor: gpsColor, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>
-                {gpsAccuracy !== null ? `${gpsAccuracy.toFixed(0)}` : deviceLoc.authorized === false ? '—' : '?'}
-              </Text>
-            </View>
-            <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
-              <Text style={styles.chipLabel}>YAW</Text>
-              <Text style={[styles.chipValue, { color: AMBER, textShadowColor: AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{yaw.toFixed(0)}</Text>
-            </View>
-            <View style={[styles.chip, { borderColor: (vs >= 0 ? AMBER : RED) + 'AA' }]}>
-              <Text style={styles.chipLabel}>V/S</Text>
-              <Text style={[styles.chipValue, { color: vs >= 0 ? AMBER : RED, textShadowColor: vs >= 0 ? AMBER : RED, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>{vs.toFixed(1)}</Text>
-            </View>
-            <View style={[styles.chip, { borderColor: '#3B82F6AA' }]}>
-              <Text style={styles.chipLabel}>P/R</Text>
-              <Text style={[styles.chipValue, { color: '#3B82F6', textShadowColor: '#3B82F6', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 }]}>
-                {(telemetry?.pitch ?? 0).toFixed(1)}/{(telemetry?.roll ?? 0).toFixed(1)}
-              </Text>
-            </View>
-          </View>
-          {/* Device coordinates */}
-          {deviceLoc.location && (
-            <View style={styles.coordOverlay}>
-              <Text style={styles.coordText}>
-                {deviceLoc.location.latitude.toFixed(6)} {deviceLoc.location.longitude.toFixed(6)}
-              </Text>
-            </View>
+          {cameraState === 'connected' && (
+            <>
+              {/* Single row of essential chips */}
+              <View style={styles.metricChips}>
+                <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+                  <Text style={styles.chipLabel}>CAM</Text>
+                  <Text style={styles.chipValue}>OK</Text>
+                </View>
+                <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+                  <Text style={styles.chipLabel}>SPD</Text>
+                  <Text style={styles.chipValue}>{spd.toFixed(1)}</Text>
+                </View>
+                <View style={[styles.chip, { borderColor: altColor + 'AA' }]}>
+                  <Text style={styles.chipLabel}>ALT</Text>
+                  <Text style={styles.chipValue}>{alt.toFixed(1)}</Text>
+                </View>
+                <View style={[styles.chip, { borderColor: batColor + 'AA' }]}>
+                  <Text style={styles.chipLabel}>BAT</Text>
+                  <Text style={styles.chipValue}>{bat.toFixed(0)}</Text>
+                </View>
+                <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+                  <Text style={styles.chipLabel}>YAW</Text>
+                  <Text style={styles.chipValue}>{yaw.toFixed(0)}</Text>
+                </View>
+                <View style={[styles.chip, { borderColor: (vs >= 0 ? AMBER : RED) + 'AA' }]}>
+                  <Text style={styles.chipLabel}>V/S</Text>
+                  <Text style={styles.chipValue}>{vs.toFixed(1)}</Text>
+                </View>
+                <View style={[styles.chip, { borderColor: connected ? AMBER + 'AA' : RED + 'AA' }]}>
+                  <Text style={styles.chipLabel}>LINK</Text>
+                  <Text style={styles.chipValue}>{connected ? 'OK' : 'NO'}</Text>
+                </View>
+              </View>
+            </>
           )}
         </View>
       </View>
@@ -663,7 +632,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#050508', gap: 12,
   },
   cameraOffIcon: { fontSize: 28, color: '#333', fontWeight: '900', letterSpacing: 2 },
-  cameraOffText: { color: '#555', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  cameraConnecting: { color: '#555', fontSize: 9, fontWeight: '700', letterSpacing: 1.5 },
   retryBtn: {
     borderWidth: 1.5, borderColor: AMBER + '66',
     borderRadius: 10, paddingHorizontal: 20, paddingVertical: 8,
@@ -671,46 +640,10 @@ const styles = StyleSheet.create({
   },
   retryBtnText: { color: AMBER, fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
 
-  // ── Crosshair ──
-  crosshairContainer: {
-    position: 'absolute', top: '50%', left: '50%',
-    width: 40, height: 40, marginLeft: -20, marginTop: -20,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  crosshairH: { position: 'absolute', width: 40, height: 1, backgroundColor: AMBER, shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.9, shadowRadius: 4, elevation: 4 },
-  crosshairV: { position: 'absolute', width: 1, height: 40, backgroundColor: AMBER, shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.9, shadowRadius: 4, elevation: 4 },
-  crosshairCenter: { width: 4, height: 4, borderRadius: 2, backgroundColor: AMBER, shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 8, elevation: 8 },
-  corner: { position: 'absolute', width: 8, height: 8, borderColor: AMBER + '90' },
-  cornerTL: { top: 0, left: 0, borderTopWidth: 2, borderLeftWidth: 2 },
-  cornerTR: { top: 0, right: 0, borderTopWidth: 2, borderRightWidth: 2 },
-  cornerBL: { bottom: 0, left: 0, borderBottomWidth: 2, borderLeftWidth: 2 },
-  cornerBR: { bottom: 0, right: 0, borderBottomWidth: 2, borderRightWidth: 2 },
-
-  // ── Camera badges ──
-  cameraBadges: {
-    position: 'absolute', top: 4, right: 4,
-    flexDirection: 'row', gap: 4,
-  },
-  badge: {
-    borderWidth: 1, borderRadius: 8,
-    paddingHorizontal: 6, paddingVertical: 3,
-    backgroundColor: GLASS,
-  },
-  badgeText: { fontSize: 7, fontWeight: '800', letterSpacing: 0.8, fontFamily: 'monospace' },
-  coordOverlay: {
-    position: 'absolute', bottom: 22, left: 4, right: 4,
-    alignItems: 'center',
-  },
-  coordText: {
-    color: AMBER, fontSize: 7, fontWeight: '600',
-    fontFamily: 'monospace', letterSpacing: 0.5,
-    textShadowColor: AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4,
-  },
-
   // ── METRIC CHIPS ──
   metricChips: {
     position: 'absolute', bottom: 4, left: 4, right: 4,
-    flexDirection: 'row', flexWrap: 'wrap', gap: 3,
+    flexDirection: 'row', justifyContent: 'center', gap: 3,
   },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
@@ -719,7 +652,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6, paddingVertical: 3,
   },
   chipLabel: { color: LABEL, fontSize: 6, fontWeight: '700', letterSpacing: 0.6 },
-  chipValue: { fontSize: 8, fontWeight: '900', fontFamily: 'monospace' },
+  chipValue: { color: AMBER, fontSize: 8, fontWeight: '900', fontFamily: 'monospace' },
 
   // ── JOYSTICKS ──
   joystickSection: {
