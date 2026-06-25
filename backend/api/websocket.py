@@ -11,6 +11,7 @@ from typing import Set
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,21 @@ async def telemetry_broadcaster(mav_controller):
 
 def _get_sensor_data():
     try:
-        from backend.api.rest import sensor_manager
+        from backend.api.rest import sensor_manager, _external_sensor_data, _external_update_time
+        import time
+        # Priorizar datos externos del bridge raspberry/ (si hay y son recientes)
+        now = time.time()
+        if _external_update_time > 0 and now - _external_update_time < 30 and _external_sensor_data:
+            mtf = _external_sensor_data.get('mtf01', {})
+            lid = _external_sensor_data.get('lidar', {})
+            front_dist = mtf.get('distance_m') if mtf.get('valid') else None
+            return {
+                'mtf01_distance': mtf.get('distance_m'),
+                'lidar_closest_distance': lid.get('closest_distance'),
+                'lidar_closest_angle': lid.get('closest_angle'),
+                'lidar_points': lid.get('points', 0),
+                'obstacle_ahead': front_dist is not None and front_dist < 2.0,
+            }
         if sensor_manager and sensor_manager._running:
             data = sensor_manager.get_data()
             return {
@@ -98,6 +113,17 @@ def _get_sensor_data():
 async def get_telemetry_data(mav_controller) -> dict:
     """Extrae telemetría del controlador MAVLink + sensores."""
     try:
+        # Priorizar datos externos del bridge raspberry/
+        try:
+            from backend.api.rest import _external_mavlink_data, _external_update_time
+            now = time.time()
+            if _external_update_time > 0 and now - _external_update_time < 30 and _external_mavlink_data:
+                tel = dict(_external_mavlink_data)
+                tel.update(_get_sensor_data())
+                return tel
+        except Exception:
+            pass
+
         telemetry = getattr(mav_controller, "telemetry", None)
         sensors = _get_sensor_data()
 

@@ -12,6 +12,7 @@ from typing import Optional
 import asyncio
 import logging
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,11 @@ mav = None
 sensor_manager = None
 nav_controller = None
 _monitor_thread = None
+
+# Datos recibidos desde raspberry/ bridge (cuando el backend no tiene acceso directo al hardware)
+_external_sensor_data = {}
+_external_mavlink_data = {}
+_external_update_time = 0.0
 
 # ── Todos los modos que muestra el frontend ────────────────────────────────────
 VALID_MODES = [
@@ -109,6 +115,11 @@ async def get_status():
 @router.get("/telemetry")
 async def get_telemetry():
     try:
+        # Si hay datos MAVLink externos recientes (< 30s), usarlos
+        if _external_update_time > 0 and time.time() - _external_update_time < 30 and _external_mavlink_data:
+            tel = dict(_external_mavlink_data)
+            tel["_source"] = "external"
+            return tel
         ctrl = get_mav_controller()
         if ctrl.telemetry is None:
             tel = ctrl.get_telemetry()
@@ -460,13 +471,74 @@ def shutdown_sensors_and_nav():
             logger.error("Error deteniendo sensores: %s", e)
         sensor_manager = None
 
+# ── Endpoint para recibir datos del bridge raspberry/ ────────────────────────
+
+class SensorExternalRequest(BaseModel):
+    mtf01: Optional[dict] = None
+    lidar: Optional[dict] = None
+    obstacle_map: Optional[dict] = None
+    telemetry: Optional[dict] = None
+
+class MavlinkExternalRequest(BaseModel):
+    armed: Optional[bool] = None
+    mode: Optional[str] = None
+    altitude: Optional[float] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    roll: Optional[float] = None
+    pitch: Optional[float] = None
+    yaw: Optional[float] = None
+    battery_voltage: Optional[float] = None
+    battery_remaining: Optional[int] = None
+    ground_speed: Optional[float] = None
+    vertical_speed: Optional[float] = None
+    satellites: Optional[int] = None
+    hdop: Optional[float] = None
+
+class BridgeDataRequest(BaseModel):
+    """Datos completos enviados por raspberry/bridge.py"""
+    sensors: Optional[SensorExternalRequest] = None
+    mavlink: Optional[MavlinkExternalRequest] = None
+
+@router.post("/sensors")
+async def post_sensor_data(data: BridgeDataRequest):
+    """Recibe datos de sensores desde raspberry/bridge.py"""
+    global _external_sensor_data, _external_mavlink_data, _external_update_time
+    if data.sensors:
+        _external_sensor_data = data.sensors.model_dump(exclude_none=True)
+    if data.mavlink:
+        _external_mavlink_data = data.mavlink.model_dump(exclude_none=True)
+    _external_update_time = time.time()
+    return {"success": True, "updated_at": _external_update_time}
+
+@router.get("/sensors/source")
+async def get_sensor_source():
+    """Indica de dónde vienen los datos de sensores actualmente."""
+    source = "sim"
+    if _external_update_time > 0 and time.time() - _external_update_time < 30:
+        source = "external"
+    elif sensor_manager and not sensor_manager.sim_mode:
+        source = "local"
+    return {
+        "source": source,
+        "sim_mode": sensor_manager.sim_mode if sensor_manager else True,
+        "external_age_s": round(time.time() - _external_update_time, 1) if _external_update_time else None,
+        "external_present": _external_update_time > 0,
+    }
+
 # ── Endpoints sensores ───────────────────────────────────────────────────────
 
 @router.get("/sensors")
 async def get_sensor_data():
-    if sensor_manager is None:
-        return {"success": False, "message": "Sensores no disponibles"}
-    return {"success": True, "data": sensor_manager.get_data()}
+    # Si hay datos externos recientes (< 30s), usarlos
+    if _external_update_time > 0 and time.time() - _external_update_time < 30:
+        data = dict(_external_sensor_data)
+        data["_source"] = "external"
+        data["_updated_at"] = _external_update_time
+        return {"success": True, "data": data}
+    if sensor_manager is not None:
+        return {"success": True, "data": sensor_manager.get_data(), "_source": "local"}
+    return {"success": False, "message": "Sensores no disponibles"}
 
 @router.get("/sensors/status")
 async def get_sensor_status():
