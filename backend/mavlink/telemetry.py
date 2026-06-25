@@ -234,9 +234,16 @@ class DroneTelemetry:
                 }
             
             elif msg_type == "HEARTBEAT":
+                was_armed = self.data['armed']
                 self.data['armed'] = bool(
                     msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
                 )
+                # Notificar al RC controller si cambia el estado armado
+                if was_armed != self.data['armed'] and hasattr(self.conn, '_rc_callback'):
+                    try:
+                        self.conn._rc_callback(self.data['armed'])
+                    except Exception as e:
+                        logger.error("Error en RC callback: %s", e)
                 mode_str = mavutil.mode_string_v10(msg)
                 # ArduPilot Copter mode numbers when mode_string_v10 returns raw format
                 ARDU_COPTER_MODES = {

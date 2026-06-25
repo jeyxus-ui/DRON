@@ -303,6 +303,24 @@ export const WaypointScreen: React.FC = () => {
         </View>
       </View>
 
+      {/* ── SENSORES DETECTADOS ── */}
+      {connected && !demoMode && (
+        <View style={styles.sensorBar}>
+          <Text style={styles.sensorBarTitle}>SENSORES</Text>
+          <View style={styles.sensorChips}>
+            <View style={[styles.sensorChip, { borderColor: telemetry.mtf01_distance != null ? '#14B8A666' : '#333' }]}>
+              <Text style={[styles.sensorChipText, { color: telemetry.mtf01_distance != null ? '#14B8A6' : '#444' }]}>MTF01</Text>
+            </View>
+            <View style={[styles.sensorChip, { borderColor: (telemetry.lidar_points ?? 0) > 0 ? '#14B8A666' : '#333' }]}>
+              <Text style={[styles.sensorChipText, { color: (telemetry.lidar_points ?? 0) > 0 ? '#14B8A6' : '#444' }]}>LIDAR</Text>
+            </View>
+            <View style={[styles.sensorChip, { borderColor: telemetry.obstacle_ahead != null ? '#8B5CF666' : '#333' }]}>
+              <Text style={[styles.sensorChipText, { color: telemetry.obstacle_ahead != null ? '#8B5CF6' : '#444' }]}>OBSTÁCULOS</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
       <ScrollView style={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {/* ── INPUT PANEL ── */}
@@ -573,6 +591,40 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 12,
     paddingTop: 8,
+  },
+
+  // ── SENSOR BAR ──
+  sensorBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(20,30,50,0.2)',
+    borderBottomWidth: 1,
+    borderBottomColor: GLASS_BORDER,
+    gap: 8,
+  },
+  sensorBarTitle: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#444',
+    letterSpacing: 1,
+  },
+  sensorChips: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  sensorChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    backgroundColor: 'rgba(10,15,25,0.5)',
+  },
+  sensorChipText: {
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 
   // ── HEADER ──

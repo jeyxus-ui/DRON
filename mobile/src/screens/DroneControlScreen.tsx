@@ -62,7 +62,7 @@ const MODE_GROUPS = [
 ];
 
 export const DroneControlScreen: React.FC = () => {
-  const { telemetry, connected, demoMode, armDrone, disarmDrone, setJoystick, sendCommand, forceReconnect } =
+  const { telemetry, connected, demoMode, armDrone, disarmDrone, setJoystick, sendCommand, forceReconnect, pushError } =
     useDrone();
   const insets = useSafeAreaInsets();
 
@@ -297,8 +297,8 @@ export const DroneControlScreen: React.FC = () => {
               javaScriptEnabled={true}
               mediaPlaybackRequiresUserAction={false}
               allowsInlineMediaPlayback={true}
-              onError={() => setCameraState('failed')}
-              onHttpError={() => setCameraState('failed')}
+              onError={() => { setCameraState('failed'); pushError('CAM_ERROR', 'Error cargando feed de cámara', 'error'); }}
+              onHttpError={() => { setCameraState('failed'); pushError('CAM_HTTP_ERROR', 'Error HTTP en feed de cámara', 'error'); }}
               onLoad={() => {}}
               renderError={() => null}
             />
@@ -309,12 +309,12 @@ export const DroneControlScreen: React.FC = () => {
                 style={styles.retryBtn}
                 onPress={() => {
                   setCameraState('loading');
-                  fetch(`${getApiUrl()}/api/camera/view`, { method: 'HEAD', cache: 'no-store' })
+                  fetch(`${getApiUrl()}/api/camera/view`, { method: 'HEAD' })
                     .then(r => {
-                      if (r.ok) { setCameraState('connected'); cameraKeyRef.current++; }
-                      else setCameraState('failed');
+                      if (r.ok) { setCameraState('connected'); cameraKeyRef.current++; pushError('CAM_OK', 'Cámara conectada', 'info'); }
+                      else { setCameraState('failed'); pushError('CAM_CHECK', 'Cámara no responde (HEAD)', 'error'); }
                     })
-                    .catch(() => setCameraState('failed'));
+                    .catch(() => { setCameraState('failed'); pushError('CAM_NETWORK', 'Red no disponible para cámara', 'error'); });
                 }}
                 activeOpacity={0.7}
               >

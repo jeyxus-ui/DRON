@@ -4,6 +4,17 @@ import { getStoredIp } from '../utils/ipConfig';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 
+export type ErrorSeverity = 'info' | 'warn' | 'error' | 'critical';
+
+export interface AppError {
+  id: string;
+  code: string;
+  message: string;
+  detail?: string;
+  timestamp: number;
+  severity: ErrorSeverity;
+}
+
 interface Telemetry {
   armed:              boolean;
   mode:               string;
@@ -50,6 +61,12 @@ interface DroneContextType {
   setAvoidance:    (active: boolean) => Promise<CommandResult>;
   // IP dinámica
   forceReconnect:  () => void;
+  // Error handling
+  errors:          AppError[];
+  lastError:       AppError | null;
+  pushError:       (code: string, message: string, severity?: ErrorSeverity, detail?: string) => void;
+  clearErrors:     () => void;
+  dismissError:    (id: string) => void;
 }
 
 const DroneContext = createContext<DroneContextType | undefined>(undefined);
@@ -130,10 +147,14 @@ const createDemoTelemetry = (armed: boolean, seconds: number): Telemetry => {
 
 // ── Provider ───────────────────────────────────────────────────────────────────
 
+let errorCounter = 0;
+const genErrorId = () => `err_${++errorCounter}_${Date.now()}`;
+
 export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [telemetry, setTelemetry] = useState<Telemetry>(DEFAULT_TELEMETRY);
   const [connected, setConnected] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
+  const [errors, setErrors] = useState<AppError[]>([]);
 
   const ws               = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -143,6 +164,30 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const demoArmed        = useRef(false);
   const mountedRef       = useRef(true);
 
+  // ── Error handling ────────────────────────────────────────────────────────
+
+  const pushError = useCallback((code: string, message: string, severity: ErrorSeverity = 'error', detail?: string) => {
+    const err: AppError = {
+      id: genErrorId(),
+      code,
+      message,
+      detail,
+      timestamp: Date.now(),
+      severity,
+    };
+    setErrors(prev => [err, ...prev].slice(0, 50));
+    const fn = severity === 'critical' ? console.error : severity === 'warn' ? console.warn : console.log;
+    fn(`[${severity.toUpperCase()}] ${code}: ${message}`, detail ?? '');
+  }, []);
+
+  const clearErrors = useCallback(() => setErrors([]), []);
+
+  const dismissError = useCallback((id: string) => {
+    setErrors(prev => prev.filter(e => e.id !== id));
+  }, []);
+
+  const lastError = errors.length > 0 ? errors[0] : null;
+
   // ── Estado RC persistente ─────────────────────────────────────────────────
   const rcValues = useRef({ throttle: 0, yaw: 0, pitch: 0, roll: 0 });
 
@@ -151,6 +196,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const startDemo = useCallback(() => {
     if (demoTick.current) return;
     console.log('[DEMO] 📱 Modo demo activado — datos simulados');
+    pushError('DEMO_MODE', 'Modo demo activado — datos simulados, no del dron real', 'warn');
     setDemoMode(true);
     demoStartTime.current = Date.now();
     demoArmed.current = false;
@@ -204,6 +250,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       newWs.onopen = () => {
         console.log('[WS] ✅ Conexión establecida');
+        pushError('WS_CONNECTED', 'Conectado al servidor', 'info');
         setConnected(true);
         stopDemo();
       };
@@ -213,7 +260,11 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const message = JSON.parse(event.data);
 
           if (message.type === 'telemetry') {
-            setTelemetry(message.data);
+            if (message.data?.error) {
+              pushError('TELEMETRY_ERROR', `Error en telemetría: ${message.data.error}`, 'warn');
+            } else {
+              setTelemetry(message.data);
+            }
 
           } else if (message.type === 'command_ack') {
             const cmdType = message.command as string;
@@ -221,6 +272,9 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               success: message.result?.success ?? false,
               message: message.result?.message ?? '',
             };
+            if (!result.success) {
+              pushError('CMD_FAILED', `Comando ${cmdType} falló: ${result.message}`, 'error');
+            }
             const resolve = pendingCommands.current.get(cmdType);
             if (resolve) {
               resolve(result);
@@ -232,28 +286,41 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             console.log('[WS] Mensaje desconocido:', message.type);
           }
         } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          pushError('WS_PARSE', `Error parseando mensaje WebSocket: ${errMsg}`, 'error');
           console.error('[WS] Error parseando mensaje:', err);
         }
       };
 
       newWs.onerror = () => {
+        pushError('WS_ERROR', 'Error de conexión WebSocket con el servidor', 'critical');
         console.error('[WS] ❌ Error de WebSocket');
         setConnected(false);
         startDemo();
       };
 
       newWs.onclose = (event) => {
+        const code = event.code ?? 0;
+        const reasons: Record<number, string> = {
+          1000: 'Cierre normal',
+          1001: 'El servidor se desconectó',
+          1006: 'Conexión abortada (timeout / sin respuesta)',
+          1011: 'Error interno del servidor',
+        };
+        const reason = reasons[code] ?? `Código ${code}`;
+        pushError('WS_CLOSED', `Conexión perdida: ${reason}`, 'critical');
         console.warn(`[WS] ⚠️ Cerrado — code=${event.code}`);
         setConnected(false);
 
         pendingCommands.current.forEach((resolve) => {
-          resolve({ success: false, message: 'Conexión perdida' });
+          resolve({ success: false, message: `Conexión perdida: ${reason}` });
         });
         pendingCommands.current.clear();
 
         if (mountedRef.current) {
           reconnectTimeout.current = setTimeout(() => {
             console.log('[WS] 🔄 Reconectando...');
+            pushError('WS_RECONNECT', 'Reconectando al servidor...', 'info');
             connectWebSocket();
             startDemo();
           }, 3000);
@@ -262,6 +329,8 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       ws.current = newWs;
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      pushError('WS_CREATE', `Error creando WebSocket: ${errMsg}`, 'critical');
       console.error('[WS] Error creando WebSocket:', err);
     }
   }, [startDemo, stopDemo]);
@@ -323,6 +392,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const timer = setTimeout(() => {
         if (pendingCommands.current.has(type)) {
           pendingCommands.current.delete(type);
+          pushError('CMD_TIMEOUT', `Comando ${type} — el dron no respondió en 5s`, 'warn');
           resolve({ success: false, message: 'Timeout — el dron no respondió' });
         }
       }, 5000);
@@ -494,6 +564,11 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       navStop,
       setAvoidance,
       forceReconnect,
+      errors,
+      lastError,
+      pushError,
+      clearErrors,
+      dismissError,
     }}>
       {children}
     </DroneContext.Provider>

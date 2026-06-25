@@ -175,10 +175,18 @@ async def process_command(command: dict, mav_controller) -> dict:
         # ── Comandos de estado ────────────────────────────────────────────────
         if cmd_type == "ARM":
             success = await asyncio.to_thread(mav_controller.arm)
+            if success:
+                rc = getattr(mav_controller, "rc", None)
+                if rc:
+                    rc.set_armed(True)
             return {"success": success, "message": "Drone armado" if success else "Error armando"}
 
         elif cmd_type == "DISARM":
             success = await asyncio.to_thread(mav_controller.disarm)
+            if success:
+                rc = getattr(mav_controller, "rc", None)
+                if rc:
+                    rc.set_armed(False)
             return {"success": success, "message": "Drone desarmado" if success else "Error desarmando"}
 
         elif cmd_type == "TAKEOFF":
@@ -241,6 +249,7 @@ async def process_command(command: dict, mav_controller) -> dict:
                 rc = getattr(mav_controller, "rc", None)
                 if rc:
                     rc.reset_controls()
+                    rc.set_armed(False)
                 return {"success": success, "message": "STOP activado" if success else "Error en STOP"}
             elif action == "RTL":
                 success = await asyncio.to_thread(mav_controller.return_to_launch)
@@ -456,9 +465,17 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect as e:
         manager.disconnect(websocket)
         logger.info(f"[WS] {client_id} desconectado (code={e.code})")
+        # Failsafe: liberar control RC al desconectarse
+        rc = getattr(mav_controller, "rc", None) if mav_controller else None
+        if rc:
+            rc.reset_controls()
+            logger.warning(f"[WS] {client_id} — RC reseteado por desconexión")
     except Exception as e:
         logger.error(f"[WS] {client_id} ERROR: {type(e).__name__}: {e}", exc_info=True)
         manager.disconnect(websocket)
+        rc = getattr(mav_controller, "rc", None) if mav_controller else None
+        if rc:
+            rc.reset_controls()
 
 
 def start_telemetry_broadcast(mav_controller):

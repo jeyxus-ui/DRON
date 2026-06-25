@@ -32,6 +32,11 @@ class RCOverrideController:
     PWM_MAX    = 2000
     PWM_CENTER = 1500
 
+    # ── Constantes ───────────────────────────────────────────────────────────
+
+    IDLE_THROTTLE = 0.15    # 15% = ~1150 PWM (idle armado)
+    ARM_IDLE_DURATION = 10.0  # segundos de idle tras armar
+
     def __init__(self, mavlink_connection):
         self.conn    = mavlink_connection
         self.channels = [0] * 8
@@ -45,6 +50,8 @@ class RCOverrideController:
         self.roll     = 0.0
 
         self.lock = threading.Lock()
+        self._failsafe_fired = False
+        self._armed_at: float | None = None  # timestamp de armado, None si desarmado
         logger.info("RCOverrideController inicializado")
 
     def start(self):
@@ -66,11 +73,32 @@ class RCOverrideController:
     def _send_loop(self):
         while self.running:
             try:
+                now = time.time()
+
                 with self.lock:
-                    ch_roll     = self._to_pwm(self.roll)
-                    ch_pitch    = self._to_pwm(self.pitch)
-                    ch_throttle = self._to_pwm_throttle(self.throttle)
-                    ch_yaw      = self._to_pwm(self.yaw)
+                    use_throttle = self.throttle
+                    use_yaw      = self.yaw
+                    use_pitch    = self.pitch
+                    use_roll     = self.roll
+
+                    # ── Idle post-armado ──────────────────────────────────
+                    if self._armed_at is not None:
+                        idle_remaining = self.ARM_IDLE_DURATION - (now - self._armed_at)
+                        if idle_remaining > 0:
+                            use_throttle = self.IDLE_THROTTLE
+                            use_yaw = 0.0
+                            use_pitch = 0.0
+                            use_roll = 0.0
+                            if int(idle_remaining) != int(idle_remaining + 0.1):
+                                logger.info('⏳ IDLE ARM — %.0f s restantes (joystick bloqueado)', idle_remaining)
+                        elif not self._failsafe_fired:
+                            self._failsafe_fired = True
+                            logger.info('✅ IDLE ARM — periodo de idle completado, joystick activo')
+
+                    ch_roll     = self._to_pwm(use_roll)
+                    ch_pitch    = self._to_pwm(use_pitch)
+                    ch_throttle = self._to_pwm_throttle(use_throttle)
+                    ch_yaw      = self._to_pwm(use_yaw)
 
                 master = self.conn.master
                 if master:
@@ -148,10 +176,33 @@ class RCOverrideController:
                 self.pitch = max(-1.0, min(1.0, float(pitch)))
             if roll is not None:
                 self.roll = max(-1.0, min(1.0, float(roll)))
+            self._failsafe_fired = False
 
     def reset_controls(self):
         with self.lock:
             self.throttle = self.yaw = self.pitch = self.roll = 0.0
+            self._failsafe_fired = False
+
+    def set_armed(self, armed: bool):
+        with self.lock:
+            if armed:
+                self._armed_at = time.time()
+                self._failsafe_fired = False
+                logger.info('⏳ ARM — idle %.0f s activado (joystick bloqueado)', self.ARM_IDLE_DURATION)
+            else:
+                self._armed_at = None
+                self.throttle = 0.0
+                self.yaw = 0.0
+                self.pitch = 0.0
+                self.roll = 0.0
+                self._failsafe_fired = False
+                logger.info('⏹ DISARM — idle cancelado, RC reseteado')
+
+    def is_in_idle(self) -> bool:
+        with self.lock:
+            if self._armed_at is None:
+                return False
+            return (time.time() - self._armed_at) < self.ARM_IDLE_DURATION
 
     def get_current_values(self) -> dict:
         with self.lock:
@@ -164,4 +215,6 @@ class RCOverrideController:
                 "yaw_pwm":      self._to_pwm(self.yaw),
                 "pitch_pwm":    self._to_pwm(self.pitch),
                 "roll_pwm":     self._to_pwm(self.roll),
+                "in_idle":      self._armed_at is not None and (time.time() - self._armed_at) < self.ARM_IDLE_DURATION,
+                "idle_remaining": round(max(0, self.ARM_IDLE_DURATION - (time.time() - self._armed_at)), 1) if self._armed_at else 0,
             }

@@ -67,6 +67,8 @@ class MAVController:
         self.master = self.conn.master
         self.rc = RCOverrideController(self.conn)
         self.rc.start()
+        # Callback desde telemetría HEARTBEAT para detectar armado real
+        self.conn._rc_callback = self.rc.set_armed
         logger.info("RC Override Controller iniciado")
 
     # Telemetry / status wrappers

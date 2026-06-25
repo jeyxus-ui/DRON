@@ -48,6 +48,15 @@ export const TelemetryScreen: React.FC = () => {
   const mode = String(telemetry?.mode ?? 'UNKNOWN');
   const armed = Boolean(telemetry?.armed);
 
+  // Sensores
+  const mtf01Dist = telemetry?.mtf01_distance;
+  const lidarDist = telemetry?.lidar_closest_distance;
+  const lidarAngle = telemetry?.lidar_closest_angle;
+  const lidarPts = Number(telemetry?.lidar_points ?? 0);
+  const obstacleAhead = Boolean(telemetry?.obstacle_ahead);
+
+  const hasSensors = mtf01Dist != null || lidarDist != null;
+
   const batColor = batPct > 50 ? '#14B8A6' : batPct > 20 ? '#ffaa00' : '#ff0044';
   const satColor = sat >= 8 ? '#14B8A6' : sat >= 5 ? '#ffaa00' : '#ff4444';
   const modeColor = getModeColor(mode);
@@ -226,6 +235,49 @@ export const TelemetryScreen: React.FC = () => {
             <Text style={styles.batteryMarkLabel}>100%</Text>
           </View>
         </View>
+
+        {/* ── SENSORES ── */}
+        {hasSensors && (
+          <>
+            <Text style={styles.sectionLabel}>SENSORES</Text>
+            <View style={styles.dataContainer}>
+              {mtf01Dist != null && (
+                <View style={[styles.dataRow, { borderBottomWidth: 1.5, borderBottomColor: 'rgba(255,255,255,0.06)' }]}>
+                  <Text style={styles.rowLabel}>MTF01</Text>
+                  <Text style={[styles.rowValue, { color: mtf01Dist < 2 ? '#ff6644' : '#14B8A6' }]}>
+                    {mtf01Dist.toFixed(2)} <Text style={styles.rowUnit}>m</Text>
+                  </Text>
+                </View>
+              )}
+              {lidarDist != null && (
+                <View style={[styles.dataRow, { borderBottomWidth: 1.5, borderBottomColor: 'rgba(255,255,255,0.06)' }]}>
+                  <Text style={styles.rowLabel}>LIDAR close</Text>
+                  <Text style={[styles.rowValue, { color: lidarDist < 2 ? '#ff6644' : '#14B8A6' }]}>
+                    {lidarDist.toFixed(2)} <Text style={styles.rowUnit}>m</Text>
+                  </Text>
+                </View>
+              )}
+              {lidarAngle != null && (
+                <View style={[styles.dataRow, { borderBottomWidth: 1.5, borderBottomColor: 'rgba(255,255,255,0.06)' }]}>
+                  <Text style={styles.rowLabel}>LIDAR angle</Text>
+                  <Text style={[styles.rowValue, { color: '#aaa' }]}>
+                    {lidarAngle.toFixed(1)}°
+                  </Text>
+                </View>
+              )}
+              <View style={[styles.dataRow, { borderBottomWidth: 1.5, borderBottomColor: 'rgba(255,255,255,0.06)' }]}>
+                <Text style={styles.rowLabel}>LIDAR points</Text>
+                <Text style={[styles.rowValue, { color: '#aaa' }]}>{lidarPts}</Text>
+              </View>
+              <View style={[styles.dataRow, { borderBottomWidth: 0 }]}>
+                <Text style={styles.rowLabel}>Obstáculo</Text>
+                <Text style={[styles.rowValue, { color: obstacleAhead ? '#ff4466' : '#14B8A6' }]}>
+                  {obstacleAhead ? '⚠ ADELANTE' : 'DESPEJADO'}
+                </Text>
+              </View>
+            </View>
+          </>
+        )}
 
         <View style={{ height: 24 }} />
       </ScrollView>

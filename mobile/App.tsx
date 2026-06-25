@@ -6,6 +6,7 @@ import { DroneControlScreen } from './src/screens/DroneControlScreen';
 import { TelemetryScreen }    from './src/screens/TelemetryScreen';
 import { GPSScreen } from './src/screens/GPSScreen';
 import { WaypointScreen }     from './src/screens/WaypointScreen';
+import { ErrorBanner } from './src/components/ErrorBanner';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -46,6 +47,7 @@ export default function App() {
     <SafeAreaProvider>
       <DroneProvider>
         <View style={styles.root}>
+          <ErrorBanner />
           <FlatList
             ref={flatListRef}
             data={SCREENS}
