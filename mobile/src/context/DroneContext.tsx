@@ -13,6 +13,7 @@ export interface AppError {
   detail?: string;
   timestamp: number;
   severity: ErrorSeverity;
+  count: number;  // cuántas veces ocurrió este mismo error
 }
 
 interface Telemetry {
@@ -62,11 +63,13 @@ interface DroneContextType {
   // IP dinámica
   forceReconnect:  () => void;
   // Error handling
-  errors:          AppError[];
-  lastError:       AppError | null;
-  pushError:       (code: string, message: string, severity?: ErrorSeverity, detail?: string) => void;
-  clearErrors:     () => void;
-  dismissError:    (id: string) => void;
+  errors:            AppError[];
+  lastError:         AppError | null;
+  pushError:         (code: string, message: string, severity?: ErrorSeverity, detail?: string) => void;
+  clearErrors:       () => void;
+  dismissError:      (id: string) => void;
+  errorHistory:      AppError[];   // historial completo (persistente)
+  clearErrorHistory: () => void;
 }
 
 const DroneContext = createContext<DroneContextType | undefined>(undefined);
@@ -150,11 +153,51 @@ const createDemoTelemetry = (armed: boolean, seconds: number): Telemetry => {
 let errorCounter = 0;
 const genErrorId = () => `err_${++errorCounter}_${Date.now()}`;
 
+// ── Persistencia de historial de errores ────────────────────────────────────
+
+const ERROR_HISTORY_FILE = 'error_history.json';
+let _fs_available = true;
+
+const getFS = () => {
+  try {
+    return require('react-native-fs');
+  } catch {
+    _fs_available = false;
+    return null;
+  }
+};
+
+const persistErrorHistory = async (history: AppError[]) => {
+  if (!_fs_available) return;
+  try {
+    const RNFS = getFS();
+    if (!RNFS) return;
+    const dir = `${RNFS.DocumentDirectoryPath}/GCS`;
+    const exists = await RNFS.exists(dir);
+    if (!exists) await RNFS.mkdir(dir);
+    await RNFS.writeFile(`${dir}/${ERROR_HISTORY_FILE}`, JSON.stringify(history), 'utf8');
+  } catch { /* fallback silencioso */ }
+};
+
+const loadErrorHistory = async (): Promise<AppError[]> => {
+  if (!_fs_available) return [];
+  try {
+    const RNFS = getFS();
+    if (!RNFS) return [];
+    const path = `${RNFS.DocumentDirectoryPath}/GCS/${ERROR_HISTORY_FILE}`;
+    const exists = await RNFS.exists(path);
+    if (!exists) return [];
+    const data = await RNFS.readFile(path, 'utf8');
+    return JSON.parse(data);
+  } catch { return []; }
+};
+
 export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [telemetry, setTelemetry] = useState<Telemetry>(DEFAULT_TELEMETRY);
   const [connected, setConnected] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [errors, setErrors] = useState<AppError[]>([]);
+  const [errorHistory, setErrorHistory] = useState<AppError[]>([]);
 
   const ws               = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,20 +210,63 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // ── Error handling ────────────────────────────────────────────────────────
 
   const pushError = useCallback((code: string, message: string, severity: ErrorSeverity = 'error', detail?: string) => {
-    const err: AppError = {
-      id: genErrorId(),
-      code,
-      message,
-      detail,
-      timestamp: Date.now(),
-      severity,
-    };
-    setErrors(prev => [err, ...prev].slice(0, 50));
+    const now = Date.now();
     const fn = severity === 'critical' ? console.error : severity === 'warn' ? console.warn : console.log;
     fn(`[${severity.toUpperCase()}] ${code}: ${message}`, detail ?? '');
+
+    // Si el mismo código ya está visible, solo actualizar timestamp + count
+    setErrors(prev => {
+      const existing = prev.find(e => e.code === code);
+      if (existing) {
+        return prev.map(e =>
+          e.code === code
+            ? { ...e, count: e.count + 1, timestamp: now }
+            : e
+        );
+      }
+      const err: AppError = {
+        id: genErrorId(),
+        code, message, detail,
+        timestamp: now, severity, count: 1,
+      };
+      return [err, ...prev].slice(0, 50);
+    });
+
+    // Historial: guardar siempre (dedup por código para no saturar)
+    setErrorHistory(prev => {
+      const existing = prev.find(e => e.code === code);
+      if (existing) {
+        return prev.map(e =>
+          e.code === code
+            ? { ...e, count: e.count + 1, timestamp: now, detail: detail ?? e.detail }
+            : e
+        );
+      }
+      const err: AppError = {
+        id: genErrorId(),
+        code, message, detail,
+        timestamp: now, severity, count: 1,
+      };
+      const updated = [err, ...prev].slice(0, 200);
+      // Persistir a archivo en background
+      persistErrorHistory(updated);
+      return updated;
+    });
   }, []);
 
   const clearErrors = useCallback(() => setErrors([]), []);
+
+  const clearErrorHistory = useCallback(() => {
+    setErrorHistory([]);
+    persistErrorHistory([]);
+  }, []);
+
+  // Cargar historial al montar
+  useEffect(() => {
+    loadErrorHistory().then(h => {
+      if (h.length > 0) setErrorHistory(h);
+    });
+  }, []);
 
   const dismissError = useCallback((id: string) => {
     setErrors(prev => prev.filter(e => e.id !== id));
@@ -569,6 +655,8 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       pushError,
       clearErrors,
       dismissError,
+      errorHistory,
+      clearErrorHistory,
     }}>
       {children}
     </DroneContext.Provider>

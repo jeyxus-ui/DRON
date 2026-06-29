@@ -26,7 +26,14 @@ const ErrorCard: React.FC<{ error: AppError; onDismiss: (id: string) => void }> 
   return (
     <Animated.View style={[styles.card, { borderLeftColor: color, opacity, transform: [{ translateY }] }]}>
       <View style={styles.cardContent}>
-        <Text style={[styles.cardCode, { color }]}>{error.code}</Text>
+        <View style={styles.cardHeader}>
+          <Text style={[styles.cardCode, { color }]}>{error.code}</Text>
+          {error.count > 1 && (
+            <View style={[styles.countBadge, { backgroundColor: color }]}>
+              <Text style={styles.countText}>x{error.count}</Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.cardMessage}>{error.message}</Text>
         {error.detail && <Text style={styles.cardDetail}>{error.detail}</Text>}
       </View>
@@ -78,11 +85,26 @@ const styles = StyleSheet.create({
   cardContent: {
     flex: 1,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
   cardCode: {
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1,
-    marginBottom: 2,
+  },
+  countBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  countText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#fff',
   },
   cardMessage: {
     fontSize: 13,
