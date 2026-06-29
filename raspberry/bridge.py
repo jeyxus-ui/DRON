@@ -71,12 +71,26 @@ class DroneBridge:
         self._init_sensors()
 
     def _init_mavlink(self):
+        device = MAVLINK_DEVICE
+        if device.upper() in ('SIM', 'NONE', ''):
+            logger.info('[BRIDGE] MAVLink modo SIM — sin conexión')
+            self._mav = None
+            return
+        # Verificar que el puerto existe antes de intentar (evita retrasos largos en Windows)
+        if not device.startswith('/') and ':' not in device:
+            logger.warning('[BRIDGE] MAVLink device inválido: %s — ignorando', device)
+            self._mav = None
+            return
+        if device.startswith('/') and not os.path.exists(device):
+            logger.warning('[BRIDGE] MAVLink device %s no existe — ignorando', device)
+            self._mav = None
+            return
         try:
             from connection import MAVLinkConnection
-            self._mav = MAVLinkConnection(MAVLINK_DEVICE, MAVLINK_BAUD)
+            self._mav = MAVLinkConnection(device, MAVLINK_BAUD)
             if self._mav.is_connected():
                 self._mav.start_telemetry_loop(interval=0.05)
-                logger.info('[BRIDGE] MAVLink conectado: %s @ %s', MAVLINK_DEVICE, MAVLINK_BAUD)
+                logger.info('[BRIDGE] MAVLink conectado: %s @ %s', device, MAVLINK_BAUD)
             else:
                 logger.warning('[BRIDGE] MAVLink no conectado')
         except Exception as e:
