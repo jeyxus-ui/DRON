@@ -29,7 +29,7 @@ const LABEL = '#666';
 
 export const WaypointScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const { telemetry, connected, demoMode, sendCommand } = useDrone();
+  const { telemetry, connected, demoMode, sendCommand, pushError } = useDrone();
 
   const [waypoints, setWaypoints] = useState<WaypointItem[]>([]);
   const [fwd, setFwd] = useState('');
@@ -66,6 +66,30 @@ export const WaypointScreen: React.FC = () => {
   }, []);
 
   useEffect(() => { refreshSavedRoutes(); }, [refreshSavedRoutes]);
+
+  useEffect(() => {
+    if (!connected || demoMode) return;
+    let cancelled = false;
+    const check = () => {
+      fetch('http://172.20.10.2:8000/api/sensors/status')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (cancelled || !data) return;
+          if (!data.success || !data.data?.running) {
+            pushError('SENSOR_NO_DATA', 'Sensores no disponibles — verifica bridge raspberry o conexión I2C/USB', 'warn');
+          } else {
+            const mtf = data.data.mtf01;
+            const lid = data.data.lidar;
+            if (mtf && !mtf.running) pushError('SENSOR_MTF01_ERROR', 'Ultrasonido MTF01 no conectado — revisa cable I2C', 'warn');
+            if (lid && !lid.running) pushError('SENSOR_LIDAR_ERROR', 'LIDAR YDLIDAR no conectado — revisa cable USB', 'warn');
+          }
+        })
+        .catch(() => {});
+    };
+    check();
+    const iv = setInterval(check, 15000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [connected, demoMode, pushError]);
 
   const addWaypoint = () => {
     const f = parseFloat(fwd);

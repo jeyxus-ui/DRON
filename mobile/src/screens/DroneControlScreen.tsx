@@ -309,10 +309,17 @@ export const DroneControlScreen: React.FC = () => {
                 style={styles.retryBtn}
                 onPress={() => {
                   setCameraState('loading');
-                  fetch(`${getApiUrl()}/api/camera/view`, { method: 'HEAD' })
-                    .then(r => {
-                      if (r.ok) { setCameraState('connected'); cameraKeyRef.current++; pushError('CAM_OK', 'Cámara conectada', 'info'); }
-                      else { setCameraState('failed'); pushError('CAM_CHECK', 'Cámara no responde (HEAD)', 'error'); }
+                  fetch(`${getApiUrl()}/api/camera/status`)
+                    .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
+                    .then(data => {
+                      if (data.running && data.has_frame) {
+                        setCameraState('connected');
+                        cameraKeyRef.current++;
+                        pushError('CAM_OK', 'Cámara conectada', 'info');
+                      } else {
+                        setCameraState('failed');
+                        pushError('CAM_NOT_CONNECTED', 'No hay cámara conectada — verifica cable USB y drivers', 'error');
+                      }
                     })
                     .catch(() => { setCameraState('failed'); pushError('CAM_NETWORK', 'Red no disponible para cámara', 'error'); });
                 }}

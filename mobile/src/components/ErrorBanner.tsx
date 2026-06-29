@@ -10,7 +10,17 @@ const SEVERITY_COLORS: Record<string, string> = {
   critical: '#ff0044',
 };
 
-const ErrorCard: React.FC<{ error: AppError; onDismiss: (id: string) => void }> = ({ error, onDismiss }) => {
+const AUTO_DISMISS_MS: Record<string, number> = {
+  info: 4000,
+  warn: 6000,
+  error: 8000,
+  critical: 12000,
+};
+
+// IDs descartados localmente (solo del banner, no afecta al contexto)
+const dismissedLocally = new Set<string>();
+
+const ErrorCard: React.FC<{ error: AppError }> = ({ error }) => {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(-20)).current;
 
@@ -19,9 +29,19 @@ const ErrorCard: React.FC<{ error: AppError; onDismiss: (id: string) => void }> 
       Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
       Animated.timing(translateY, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start();
+    const timer = setTimeout(() => {
+      dismissedLocally.add(error.id);
+      Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+    }, AUTO_DISMISS_MS[error.severity] ?? 6000);
+    return () => clearTimeout(timer);
   }, []);
 
   const color = SEVERITY_COLORS[error.severity] ?? '#888';
+
+  const handleDismiss = () => {
+    dismissedLocally.add(error.id);
+    Animated.timing(opacity, { toValue: 0, duration: 150, useNativeDriver: true }).start();
+  };
 
   return (
     <Animated.View style={[styles.card, { borderLeftColor: color, opacity, transform: [{ translateY }] }]}>
@@ -37,7 +57,7 @@ const ErrorCard: React.FC<{ error: AppError; onDismiss: (id: string) => void }> 
         <Text style={styles.cardMessage}>{error.message}</Text>
         {error.detail && <Text style={styles.cardDetail}>{error.detail}</Text>}
       </View>
-      <TouchableOpacity onPress={() => onDismiss(error.id)} style={styles.dismissBtn}>
+      <TouchableOpacity onPress={handleDismiss} style={styles.dismissBtn}>
         <Text style={styles.dismissText}>✕</Text>
       </TouchableOpacity>
     </Animated.View>
@@ -45,17 +65,19 @@ const ErrorCard: React.FC<{ error: AppError; onDismiss: (id: string) => void }> 
 };
 
 export const ErrorBanner: React.FC = () => {
-  const { errors, dismissError } = useDrone();
+  const { errors } = useDrone();
   const insets = useSafeAreaInsets();
 
-  const visible = errors.slice(0, 3);
+  const visible = errors
+    .filter(e => !e.acknowledged && !dismissedLocally.has(e.id))
+    .slice(0, 3);
 
   if (visible.length === 0) return null;
 
   return (
     <View style={[styles.container, { top: insets.top + 8 }]}>
       {visible.map(err => (
-        <ErrorCard key={err.id} error={err} onDismiss={dismissError} />
+        <ErrorCard key={err.id} error={err} />
       ))}
     </View>
   );

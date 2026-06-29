@@ -195,7 +195,10 @@ async def process_command(command: dict, mav_controller) -> dict:
     logger.info(f"Procesando comando: {cmd_type} | params: {params}")
 
     if not mav_controller:
-        return {"success": False, "message": "MAVLink no conectado"}
+        return {"success": False, "message": "No hay dron conectado — el backend no pudo conectar con el Pixhawk"}
+
+    if not mav_controller.is_connected():
+        return {"success": False, "message": "Dron no conectado — verifica cable USB del Pixhawk y heartbeat MAVLink"}
 
     try:
         # ── Comandos de estado ────────────────────────────────────────────────
@@ -461,7 +464,9 @@ async def websocket_endpoint(websocket: WebSocket):
     mav_controller = rest.mav
 
     if not mav_controller:
-        logger.warning(f"[WS] {client_id} — MAVLink no disponible")
+        logger.warning(f"[WS] {client_id} — No hay dron conectado")
+    elif not mav_controller.is_connected():
+        logger.warning(f"[WS] {client_id} — Dron conectado pero sin heartbeat")
 
     try:
         while True:

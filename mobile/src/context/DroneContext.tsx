@@ -13,7 +13,8 @@ export interface AppError {
   detail?: string;
   timestamp: number;
   severity: ErrorSeverity;
-  count: number;  // cuántas veces ocurrió este mismo error
+  count: number;
+  acknowledged: boolean;  // true si ya fue descartado del banner (sigue en historial)
 }
 
 interface Telemetry {
@@ -220,14 +221,14 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (existing) {
         return prev.map(e =>
           e.code === code
-            ? { ...e, count: e.count + 1, timestamp: now }
+            ? { ...e, count: e.count + 1, timestamp: now, acknowledged: false }
             : e
         );
       }
       const err: AppError = {
         id: genErrorId(),
         code, message, detail,
-        timestamp: now, severity, count: 1,
+        timestamp: now, severity, count: 1, acknowledged: false,
       };
       return [err, ...prev].slice(0, 50);
     });
@@ -238,14 +239,14 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (existing) {
         return prev.map(e =>
           e.code === code
-            ? { ...e, count: e.count + 1, timestamp: now, detail: detail ?? e.detail }
+            ? { ...e, count: e.count + 1, timestamp: now, detail: detail ?? e.detail, acknowledged: false }
             : e
         );
       }
       const err: AppError = {
         id: genErrorId(),
         code, message, detail,
-        timestamp: now, severity, count: 1,
+        timestamp: now, severity, count: 1, acknowledged: false,
       };
       const updated = [err, ...prev].slice(0, 200);
       // Persistir a archivo en background
@@ -269,7 +270,12 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const dismissError = useCallback((id: string) => {
-    setErrors(prev => prev.filter(e => e.id !== id));
+    setErrors(prev => prev.map(e =>
+      e.id === id ? { ...e, acknowledged: true } : e
+    ));
+    setErrorHistory(prev => prev.map(e =>
+      e.id === id ? { ...e, acknowledged: true } : e
+    ));
   }, []);
 
   const lastError = errors.length > 0 ? errors[0] : null;
@@ -359,7 +365,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               message: message.result?.message ?? '',
             };
             if (!result.success) {
-              pushError('CMD_FAILED', `Comando ${cmdType} falló: ${result.message}`, 'error');
+              pushError(`${cmdType}_FAILED`, result.message || `Comando ${cmdType} falló`, 'error');
             }
             const resolve = pendingCommands.current.get(cmdType);
             if (resolve) {
@@ -464,6 +470,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     return new Promise((resolve) => {
       if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+        pushError(`${type}_FAILED`, 'Sin conexión con el servidor — el dron no está disponible', 'error');
         resolve({ success: false, message: 'Sin conexión con el dron' });
         return;
       }

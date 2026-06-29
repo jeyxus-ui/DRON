@@ -37,10 +37,10 @@ class DroneCommands:
 
     def arm(self, force=True):
         logger.info("🔴 ARM — Armando motores...")
+        if not self.conn or not self.conn.master:
+            raise ConnectionError("No hay conexión con Pixhawk — verifica cable USB / puerto serie")
         with self.conn._lock:
             master = self.conn.master
-            if not master:
-                raise ConnectionError("No hay conexión con Pixhawk")
             master.mav.command_long_send(
                 master.target_system,
                 master.target_component,
@@ -53,15 +53,14 @@ class DroneCommands:
         if self.conn.wait_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM):
             logger.info("✅ Motores armados")
             return True
-        logger.error("❌ No se pudo armar")
-        return False
+        raise ConnectionError("Pixhawk no respondió al comando ARM — verifica conexión MAVLink y heartbeat")
 
     def disarm(self, force=False):
         logger.info("🟢 DISARM — Desarmando motores...")
+        if not self.conn or not self.conn.master:
+            raise ConnectionError("No hay conexión con Pixhawk — verifica cable USB / puerto serie")
         with self.conn._lock:
             master = self.conn.master
-            if not master:
-                raise ConnectionError("No hay conexión con Pixhawk")
             master.mav.command_long_send(
                 master.target_system,
                 master.target_component,
@@ -74,8 +73,7 @@ class DroneCommands:
         if self.conn.wait_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM):
             logger.info("✅ Motores desarmados")
             return True
-        logger.error("❌ No se pudo desarmar")
-        return False
+        raise ConnectionError("Pixhawk no respondió al comando DISARM — verifica conexión MAVLink y heartbeat")
 
     def set_mode(self, mode_name):
         logger.info(f"🔄 Cambiando a modo: {mode_name}")
