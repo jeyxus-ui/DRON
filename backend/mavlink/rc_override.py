@@ -35,7 +35,7 @@ class RCOverrideController:
     # ── Constantes ───────────────────────────────────────────────────────────
 
     IDLE_THROTTLE = 0.15    # 15% = ~1150 PWM (idle armado)
-    ARM_IDLE_DURATION = 10.0  # segundos de idle tras armar
+    ARM_IDLE_DURATION = 0.0  # sin idle — joystick responde inmediatamente
 
     def __init__(self, mavlink_connection):
         self.conn    = mavlink_connection
@@ -52,6 +52,7 @@ class RCOverrideController:
         self.lock = threading.Lock()
         self._failsafe_fired = False
         self._armed_at: float | None = None  # timestamp de armado, None si desarmado
+        self._send_failures = 0
         logger.info("RCOverrideController inicializado")
 
     def start(self):
@@ -101,21 +102,37 @@ class RCOverrideController:
                     ch_yaw      = self._to_pwm(use_yaw)
 
                 master = self.conn.master
-                if master:
-                    master.mav.rc_channels_override_send(
-                        master.target_system,
-                        master.target_component,
-                        ch_roll,     # CH1 Roll
-                        ch_pitch,    # CH2 Pitch
-                        ch_throttle, # CH3 Throttle
-                        ch_yaw,      # CH4 Yaw
-                        0, 0, 0, 0   # CH5-8 sin usar
-                    )
+                if master is not None:
+                    try:
+                        master.mav.rc_channels_override_send(
+                            master.target_system,
+                            master.target_component,
+                            ch_roll,     # CH1 Roll
+                            ch_pitch,    # CH2 Pitch
+                            ch_throttle, # CH3 Throttle
+                            ch_yaw,      # CH4 Yaw
+                            0, 0, 0, 0   # CH5-8 sin usar
+                        )
+                        if self._send_failures > 0:
+                            logger.info('RC override reconectado tras %d fallos', self._send_failures)
+                        self._send_failures = 0
+                    except Exception as e:
+                        self._send_failures += 1
+                        logger.warning('RC override error envío #%d: %s', self._send_failures, e)
+                else:
+                    self._send_failures += 1
+                    if self._send_failures == 1:
+                        logger.warning('RC override: master es None — píxhawk desconectado')
+                    elif self._send_failures == 3:
+                        logger.error('RC override: %d intentos fallidos — sin conexión con píxhawk', self._send_failures)
+                    else:
+                        logger.debug('RC override: master None (intento #%d)', self._send_failures)
 
                 time.sleep(0.1)  # 10 Hz
 
             except Exception as e:
-                logger.error(f"Error enviando RC override: {e}")
+                self._send_failures += 1
+                logger.error(f"RC override error en loop: {e}")
                 time.sleep(0.5)
 
     def _release_control(self):
@@ -203,6 +220,9 @@ class RCOverrideController:
             if self._armed_at is None:
                 return False
             return (time.time() - self._armed_at) < self.ARM_IDLE_DURATION
+
+    def is_connected(self) -> bool:
+        return self.conn is not None and self.conn.master is not None
 
     def get_current_values(self) -> dict:
         with self.lock:
