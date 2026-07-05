@@ -23,14 +23,31 @@ class DroneCommands:
     # ── Comandos básicos ───────────────────────────────────────────────────────
 
     def _is_armed(self) -> bool:
-        """Verifica si el dron está armado desde telemetry."""
+        """Verifica si el dron está armado desde telemetry o HEARTBEAT directo."""
         try:
-            if getattr(self, 'telemetry', None) and self.telemetry.data:
-                return self.telemetry.data.get('armed', False)
-            msg = self.conn.recv_match(msg_type='HEARTBEAT', blocking=False, timeout=0.5)
-            if msg:
-                from pymavlink import mavutil as mu
-                return bool(msg.base_mode & mu.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+            # 1. Cache de telemetry (rápido, sin bloqueo)
+            telemetry_available = getattr(self, 'telemetry', None) and self.telemetry.data
+            if telemetry_available:
+                armed = self.telemetry.data.get('armed', False)
+                if armed:
+                    return True
+                # Cache dice False — no confiamos ciegamente, verificamos con HEARTBEAT
+                if self.conn and self.conn.is_connected():
+                    msg = self.conn.recv_match_protected('HEARTBEAT', timeout=0.2)
+                    if msg:
+                        from pymavlink import mavutil as mu
+                        actual = bool(msg.base_mode & mu.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+                        if actual:
+                            self.telemetry.data['armed'] = True
+                            return True
+                return False
+
+            # 2. Sin cache — HEARTBEAT directo
+            if self.conn and self.conn.is_connected():
+                msg = self.conn.recv_match_protected('HEARTBEAT', timeout=0.2)
+                if msg:
+                    from pymavlink import mavutil as mu
+                    return bool(msg.base_mode & mu.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
         except Exception:
             pass
         return False

@@ -129,4 +129,10 @@ def list_routes():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=API_HOST, port=API_PORT)
+    uvicorn.run(
+        app,
+        host=API_HOST,
+        port=API_PORT,
+        ws_ping_interval=20,   # ping cada 20s para detectar half-open
+        ws_ping_timeout=10,    # timeout 10s para considerar muerta la conexión
+    )

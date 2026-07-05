@@ -468,6 +468,11 @@ async def websocket_endpoint(websocket: WebSocket):
     elif not mav_controller.is_connected():
         logger.warning(f"[WS] {client_id} — Dron conectado pero sin heartbeat")
 
+    # Notificar reconexión al RC (cancela failsafe si estaba activo)
+    rc = getattr(mav_controller, "rc", None) if mav_controller else None
+    if rc:
+        rc.on_reconnect()
+
     try:
         while True:
             data = await websocket.receive_text()
@@ -496,17 +501,17 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect as e:
         manager.disconnect(websocket)
         logger.info(f"[WS] {client_id} desconectado (code={e.code})")
-        # Failsafe: liberar control RC al desconectarse
+        # Failsafe: NO resetea controles — el dron mantiene velocidad actual
+        # Si no reconecta en 10s, rc_override desarma automáticamente
         rc = getattr(mav_controller, "rc", None) if mav_controller else None
         if rc:
-            rc.reset_controls()
-            logger.warning(f"[WS] {client_id} — RC reseteado por desconexión")
+            rc.on_disconnect()
     except Exception as e:
         logger.error(f"[WS] {client_id} ERROR: {type(e).__name__}: {e}", exc_info=True)
         manager.disconnect(websocket)
         rc = getattr(mav_controller, "rc", None) if mav_controller else None
         if rc:
-            rc.reset_controls()
+            rc.on_disconnect()
 
 
 def start_telemetry_broadcast(mav_controller):

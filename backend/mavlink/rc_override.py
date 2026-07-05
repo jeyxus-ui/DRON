@@ -8,6 +8,7 @@ El frontend NO debe pre-convertir a PWM — eso lo hace este módulo.
 import threading
 import time
 import logging
+from pymavlink import mavutil
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,8 @@ class RCOverrideController:
 
     IDLE_THROTTLE = 0.15    # 15% = ~1150 PWM (idle armado)
     ARM_IDLE_DURATION = 0.0  # sin idle — joystick responde inmediatamente
+    DISARM_TIMEOUT = 10.0    # segundos sin conexión → empezar a reducir
+    RAMP_DOWN_DURATION = 5.0  # segundos para reducir throttle de actual → 0
 
     def __init__(self, mavlink_connection):
         self.conn    = mavlink_connection
@@ -53,6 +56,8 @@ class RCOverrideController:
         self._failsafe_fired = False
         self._armed_at: float | None = None  # timestamp de armado, None si desarmado
         self._send_failures = 0
+        self._disconnected_at: float | None = None  # timestamp de desconexión WS
+        self._disarmed_by_failsafe = False
         logger.info("RCOverrideController inicializado")
 
     def start(self):
@@ -81,6 +86,8 @@ class RCOverrideController:
                     use_yaw      = self.yaw
                     use_pitch    = self.pitch
                     use_roll     = self.roll
+                    disconnected = self._disconnected_at
+                    disarmed     = self._disarmed_by_failsafe
 
                     # ── Idle post-armado ──────────────────────────────────
                     if self._armed_at is not None:
@@ -96,10 +103,40 @@ class RCOverrideController:
                             self._failsafe_fired = True
                             logger.info('✅ IDLE ARM — periodo de idle completado, joystick activo')
 
-                    ch_roll     = self._to_pwm(use_roll)
-                    ch_pitch    = self._to_pwm(use_pitch)
-                    ch_throttle = self._to_pwm_throttle(use_throttle)
-                    ch_yaw      = self._to_pwm(use_yaw)
+                # ── Ramp-down por desconexión (fuera del lock) ────────────
+                if disconnected is not None and not disarmed:
+                    elapsed = now - disconnected
+                    if elapsed >= self.DISARM_TIMEOUT:
+                        ramp_t = elapsed - self.DISARM_TIMEOUT
+                        if ramp_t < self.RAMP_DOWN_DURATION:
+                            factor = 1.0 - (ramp_t / self.RAMP_DOWN_DURATION)
+                            use_throttle *= max(0.0, factor)
+                            if int(ramp_t) != int(ramp_t - 0.1):
+                                logger.warning('⏬ FAILSAFE — reduciendo throttle: %.0f%% restante', factor * 100)
+                        else:
+                            with self.lock:
+                                self._disarmed_by_failsafe = True
+                            logger.critical('🚨 FAILSAFE — throttle 0, desarmando motores')
+                            master = self.conn.master
+                            if master is not None:
+                                try:
+                                    master.mav.command_long_send(
+                                        master.target_system,
+                                        master.target_component,
+                                        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                                        0, 0, 0, 0, 0, 0, 0, 0,
+                                    )
+                                    logger.critical('✅ FAILSAFE — comando DISARM enviado')
+                                except Exception as e:
+                                    logger.critical('❌ FAILSAFE — error enviando DISARM: %s', e)
+                            time.sleep(0.1)
+                            continue
+
+                # ── Convertir a PWM y enviar ─────────────────────────────
+                ch_roll     = self._to_pwm(use_roll)
+                ch_pitch    = self._to_pwm(use_pitch)
+                ch_throttle = self._to_pwm_throttle(use_throttle)
+                ch_yaw      = self._to_pwm(use_yaw)
 
                 master = self.conn.master
                 if master is not None:
@@ -179,6 +216,28 @@ class RCOverrideController:
         with self.lock:
             self.roll = max(-1.0, min(1.0, float(value)))
 
+    def on_disconnect(self):
+        """
+        Marca desconexión del cliente — NO resetea controles.
+        El dron mantiene la última velocidad/actitud.
+        Si no hay reconexión en DISARM_TIMEOUT segundos,
+        el _send_loop desarma automáticamente.
+        """
+        with self.lock:
+            self._disconnected_at = time.time()
+            self._disarmed_by_failsafe = False
+            logger.warning('⏸ RC desconectado — failsafe en %.0f s si no reconecta', self.DISARM_TIMEOUT)
+
+    def on_reconnect(self):
+        """
+        Cancela el failsafe de desconexión.
+        El cliente se reconectó antes del timeout.
+        """
+        with self.lock:
+            self._disconnected_at = None
+            self._disarmed_by_failsafe = False
+            logger.info('🔁 RC reconectado — failsafe cancelado')
+
     def set_controls(self, throttle=None, yaw=None, pitch=None, roll=None):
         """
         Establece múltiples controles normalizados a la vez.
@@ -194,6 +253,11 @@ class RCOverrideController:
             if roll is not None:
                 self.roll = max(-1.0, min(1.0, float(roll)))
             self._failsafe_fired = False
+            # Cualquier set_controls implica cliente activo → cancela failsafe
+            if self._disconnected_at is not None:
+                self._disconnected_at = None
+                self._disarmed_by_failsafe = False
+                logger.info('🔁 RC reconectado por set_controls — failsafe cancelado')
 
     def reset_controls(self):
         with self.lock:
