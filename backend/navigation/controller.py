@@ -22,9 +22,18 @@ class NavigationController:
         self._thread: Optional[threading.Thread] = None
         self._mode = 'IDLE'
         self._target = None
+        self._planned_path = []
+        self._path_index = 0
         self._waypoints = []
         self._wp_index = 0
         self._on_emergency: Optional[Callable] = None
+        self._last_goto_time = 0
+        self._goto_interval = 1.0
+        self._avoid_target = None
+        self._avoid_heading = None
+        self._avoid_clear_time = 0  # cuándo se vio libre el obstáculo por última vez
+        self._avoid_clear_delay = 3.0  # segundos sin obstáculo antes de reanudar
+        self._last_avoid_log = 0
 
     def set_emergency_callback(self, cb: Callable):
         self._on_emergency = cb
@@ -45,6 +54,7 @@ class NavigationController:
 
     def navigate_to(self, lat: float, lon: float, alt: float = 10.0):
         self._target = {'lat': lat, 'lon': lon, 'alt': alt}
+        self._planned_path = []
         self._mode = 'NAVIGATING'
         logger.info('[NAV] Navegando a (%.6f, %.6f, %.1f)', lat, lon, alt)
 
@@ -57,94 +67,195 @@ class NavigationController:
     def stop_navigation(self):
         self._mode = 'IDLE'
         self._target = None
+        self._planned_path = []
         self._waypoints = []
+        self._avoid_target = None
+        self._avoid_heading = None
+        self._avoid_clear_time = 0
         logger.info('[NAV] Navegación detenida')
 
+    # ── helpers ────────────────────────────────────────────────────────────────
+
+    def _can_send_goto(self) -> bool:
+        now = time.time()
+        if now - self._last_goto_time >= self._goto_interval:
+            self._last_goto_time = now
+            return True
+        return False
+
+    def _get_pos(self) -> dict:
+        tel = self.mav.get_telemetry()
+        gps = tel.get('gps', {})
+        return {
+            'lat': gps.get('lat', 0),
+            'lon': gps.get('lon', 0),
+            'alt': tel.get('altitude', 0),
+            'yaw': tel.get('attitude', {}).get('yaw', 0),
+        }
+
+    @staticmethod
+    def _haversine(lat1, lon1, lat2, lon2) -> float:
+        R = 6371000
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2) ** 2 +
+             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2)
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    @staticmethod
+    def _offset_position(lat: float, lon: float, distance_m: float, heading_deg: float):
+        R = 6371000
+        rad = math.radians(heading_deg)
+        dlat = distance_m * math.cos(rad) / R
+        dlon = distance_m * math.sin(rad) / (R * math.cos(math.radians(lat)))
+        return lat + math.degrees(dlat), lon + math.degrees(dlon)
+
+    def _send_goto(self, lat: float, lon: float, alt: float):
+        try:
+            self.mav.goto(lat, lon, alt)
+        except Exception as e:
+            logger.error('[NAV] Error en goto: %s', e)
+
+    # ── main loop ──────────────────────────────────────────────────────────────
+
     def _nav_loop(self):
-        last_avoid_time = 0
         while self._running:
             try:
                 sensor_data = self.sensors.get_data()
-                self.sensors.set_drone_yaw(self.mav.get_telemetry().get('attitude', {}).get('yaw', 0))
-
+                pos = self._get_pos()
+                self.sensors.set_drone_yaw(pos['yaw'])
                 avoid = self.avoidance.evaluate(sensor_data)
                 now = time.time()
 
+                # ── BRAKE: obstacle too close ──
                 if avoid['action'] == 'BRAKE':
-                    if now - last_avoid_time > 3.0:
-                        last_avoid_time = now
-                        try:
-                            self.mav.set_mode('BRAKE')
-                            logger.warning('[NAV] 🛑 BRAKE por obstáculo')
-                        except Exception as e:
-                            logger.error('[NAV] Error BRAKE: %s', e)
-                        if self._on_emergency:
-                            self._on_emergency('BRAKE', avoid)
+                    try:
+                        self.mav.set_mode('BRAKE')
+                        if now - self._last_avoid_log > 2:
+                            logger.warning('[NAV] 🛑 BRAKE — obstáculo a %.2fm', avoid.get('distance', 0))
+                            self._last_avoid_log = now
+                    except Exception as e:
+                        logger.error('[NAV] Error BRAKE: %s', e)
+                    if self._on_emergency:
+                        self._on_emergency('BRAKE', avoid)
+                    self._mode = 'AVOIDING'
+                    self._avoid_target = None
+                    time.sleep(0.2)
+                    continue
+
+                # ── AVOIDING / BRAKE → steer away from obstacle ──
+                if avoid['action'] in ('AVOID', 'BRAKE'):
+                    safe_heading = avoid.get('safe_heading', pos['yaw'])
+                    # Lock heading on first detection, only update if it changes a lot
+                    if (self._mode != 'AVOIDING' or
+                        self._avoid_heading is None or
+                        abs(self._avoid_heading - safe_heading) > 45):
+                        self._avoid_heading = safe_heading
+                        # Fixed far-away point to avoid oscillations
+                        avoid_lat, avoid_lon = self._offset_position(
+                            pos['lat'], pos['lon'], 200.0, safe_heading)
+                        self._avoid_target = {'lat': avoid_lat, 'lon': avoid_lon, 'alt': pos['alt']}
+                        logger.info('[NAV] Esquivando → heading %.1f° → (%.6f, %.6f)',
+                                    safe_heading, avoid_lat, avoid_lon)
+                    self._avoid_clear_time = 0  # obstacle still present
                     self._mode = 'AVOIDING'
 
-                elif avoid['action'] == 'AVOID':
-                    safe_heading = avoid.get('safe_heading')
-                    if safe_heading and now - last_avoid_time > 1.0:
-                        logger.info('[NAV] Esquivando — heading %.1f°', safe_heading)
-                        last_avoid_time = now
-                    self._mode = 'AVOIDING'
+                # ── Obstacle cleared with hysteresis → resume mission ──
+                if avoid['action'] == 'NONE' and self._mode == 'AVOIDING':
+                    if self._avoid_clear_time == 0:
+                        self._avoid_clear_time = now
+                    elif now - self._avoid_clear_time >= self._avoid_clear_delay:
+                        self._avoid_target = None
+                        self._avoid_heading = None
+                        self._avoid_clear_time = 0
+                        self._planned_path = []  # force replan from current position
+                        self._mode = self._next_mode()
+                        logger.info('[NAV] Obstáculo superado (%gs sin detectar) → modo %s',
+                                    self._avoid_clear_delay, self._mode)
+                else:
+                    self._avoid_clear_time = 0  # reset timer if obstacle still present
 
-                elif self._mode == 'AVOIDING':
-                    self._mode = 'NAVIGATING' if self._target else ('MISSION' if self._waypoints else 'IDLE')
+                # ── Execute movement ──
+                if self._mode == 'AVOIDING' and self._avoid_target:
+                    if self._can_send_goto():
+                        self._send_goto(self._avoid_target['lat'],
+                                        self._avoid_target['lon'],
+                                        self._avoid_target['alt'])
 
-                if self._mode == 'NAVIGATING' and self._target:
-                    self._execute_navigation_step()
+                elif self._mode == 'NAVIGATING' and self._target:
+                    self._exec_nav(pos)
 
                 elif self._mode == 'MISSION':
-                    self._execute_mission_step()
+                    self._exec_mission(pos)
 
             except Exception as e:
-                logger.error('[NAV] Error en loop: %s', e)
+                logger.error('[NAV] Error en loop: %s', e, exc_info=True)
 
             time.sleep(0.2)
 
-    def _execute_navigation_step(self):
-        if not self._target:
-            return
-        tel = self.mav.get_telemetry()
-        gps = tel.get('gps', {})
-        cur_lat = gps.get('lat', 0)
-        cur_lon = gps.get('lon', 0)
-        if not cur_lat or not cur_lon:
+    def _next_mode(self) -> str:
+        if self._target:
+            return 'NAVIGATING'
+        if self._waypoints and self._wp_index < len(self._waypoints):
+            return 'MISSION'
+        return 'IDLE'
+
+    # ── navigation execution ──────────────────────────────────────────────────
+
+    def _exec_nav(self, pos: dict):
+        if not self._target or not pos['lat'] or not pos['lon']:
             return
         t = self._target
-        dist = haversine(cur_lat, cur_lon, t['lat'], t['lon'])
-        if dist < 2.0:
-            logger.info('[NAV] ✅ Destino alcanzado')
+        dst = self._haversine(pos['lat'], pos['lon'], t['lat'], t['lon'])
+        if dst < 2.0:
+            logger.info('[NAV] ✅ Destino alcanzado (%.1fm)', dst)
             self._target = None
             self._mode = 'IDLE'
             return
-        try:
-            self.mav.goto(t['lat'], t['lon'], t['alt'])
-        except Exception as e:
-            logger.error('[NAV] Error goto: %s', e)
 
-    def _execute_mission_step(self):
+        # Replan if needed (first time or after avoidance detour)
+        if not self._planned_path:
+            obs_map = getattr(self.sensors, 'obstacle_map', None)
+            self._planned_path = self.planner.plan_to_waypoint(
+                pos['lat'], pos['lon'],
+                t['lat'], t['lon'],
+                obs_map,
+            )
+            self._path_index = 0
+            logger.info('[NAV] Ruta planificada: %d waypoints', len(self._planned_path))
+
+        if self._planned_path and self._path_index < len(self._planned_path):
+            wp = self._planned_path[self._path_index]
+            wp_dst = self._haversine(pos['lat'], pos['lon'], wp['lat'], wp['lon'])
+            if wp_dst < 2.0:
+                self._path_index += 1
+                if self._path_index >= len(self._planned_path):
+                    self._planned_path = []
+                    return
+                wp = self._planned_path[self._path_index]
+            if self._can_send_goto():
+                self._send_goto(wp['lat'], wp['lon'], wp.get('alt', t['alt']))
+        else:
+            if self._can_send_goto():
+                self._send_goto(t['lat'], t['lon'], t['alt'])
+
+    def _exec_mission(self, pos: dict):
         if not self._waypoints or self._wp_index >= len(self._waypoints):
             logger.info('[NAV] ✅ Misión completada')
             self._mode = 'IDLE'
             self._waypoints = []
             return
         wp = self._waypoints[self._wp_index]
-        tel = self.mav.get_telemetry()
-        gps = tel.get('gps', {})
-        cur_lat = gps.get('lat', 0)
-        cur_lon = gps.get('lon', 0)
-        if cur_lat and cur_lon:
-            dist = haversine(cur_lat, cur_lon, wp['lat'], wp['lon'])
-            if dist < 2.0:
+        if pos['lat'] and pos['lon']:
+            dst = self._haversine(pos['lat'], pos['lon'], wp['lat'], wp['lon'])
+            if dst < 2.0:
                 self._wp_index += 1
-                logger.info('[NAV] Waypoint %d alcanzado', self._wp_index)
+                logger.info('[NAV] Waypoint %d/%d alcanzado', self._wp_index, len(self._waypoints))
                 return
-        try:
-            self.mav.goto(wp['lat'], wp['lon'], wp.get('alt', 10))
-        except Exception as e:
-            logger.error('[NAV] Error en waypoint %d: %s', self._wp_index, e)
+        if self._can_send_goto():
+            self._send_goto(wp['lat'], wp['lon'], wp.get('alt', 10))
+
+    # ── status ─────────────────────────────────────────────────────────────────
 
     def get_status(self) -> dict:
         return {
@@ -153,12 +264,5 @@ class NavigationController:
             'waypoint_index': self._wp_index,
             'total_waypoints': len(self._waypoints),
             'avoidance_active': self.avoidance.is_active,
+            'planned_path_length': len(self._planned_path),
         }
-
-
-def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6371000
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))

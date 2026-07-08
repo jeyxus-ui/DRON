@@ -81,6 +81,7 @@ class SensorManager:
                 },
                 'obstacle_map': self.obstacle_map.to_dict(),
                 'drone_yaw': self._drone_yaw,
+                'safe_direction': self.safe_direction,
             }
 
     def get_status(self) -> dict:

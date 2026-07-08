@@ -25,6 +25,30 @@ class ObstacleAvoidance:
         self._active = active
         logger.info('[AVOID] Avoidance %s', 'activado' if active else 'desactivado')
 
+    def _compute_safe_heading(self, sensor_data: dict, current_yaw: float) -> float:
+        """Compute the safest heading to evade obstacles."""
+        # 1. If obstacle_map provides a safe_direction, use it
+        safe_dir = sensor_data.get('safe_direction')
+        if safe_dir is not None:
+            return safe_dir
+
+        # 2. Use LIDAR closest_angle to steer away from nearest obstacle
+        lidar = sensor_data.get('lidar', {})
+        lidar_angle = lidar.get('closest_angle')
+        lidar_dist = lidar.get('closest_distance')
+        if lidar_angle is not None and lidar_dist is not None and lidar_dist < self.safety_distance * 2:
+            opposite = (lidar_angle + 180) % 360
+            return round(opposite, 1)
+
+        # 3. If MTF01 sees obstacle ahead, turn 90° from current heading
+        mtf = sensor_data.get('mtf01', {})
+        mtf_dist = mtf.get('distance_m')
+        if mtf_dist is not None and mtf_dist < self.safety_distance * 2:
+            return (current_yaw + 90) % 360
+
+        # 4. Default: keep current heading
+        return current_yaw
+
     def evaluate(self, sensor_data: dict) -> dict:
         if not self._active:
             return {'action': 'NONE', 'reason': 'avoidance disabled'}
@@ -43,6 +67,8 @@ class ObstacleAvoidance:
             min_dist = min(min_dist, lidar_closest)
 
         now = time.time()
+
+        # ── CRITICAL: brake immediately ──
         if min_dist <= self.brake_distance:
             if now - self._last_brake_time > self.brake_cooldown:
                 self._last_brake_time = now
@@ -52,22 +78,24 @@ class ObstacleAvoidance:
                     'reason': f'obstacle at {min_dist:.2f}m',
                     'distance': min_dist,
                 }
-            return {'action': 'NONE', 'reason': 'cooldown'}
+            return {'action': 'NONE', 'reason': 'brake cooldown'}
 
+        # ── CAUTION: obstacle within safety distance, compute evasion heading ──
         if min_dist <= self.safety_distance:
-            safe_yaw = sensor_data.get('safe_direction', yaw)
-            turn = safe_yaw - yaw
+            safe_heading = self._compute_safe_heading(sensor_data, yaw)
+            turn = safe_heading - yaw
             if turn > 180:
                 turn -= 360
             elif turn < -180:
                 turn += 360
-            logger.info('[AVOID] ADVERTENCIA — obstáculo a %.2fm — giro %.0f°', min_dist, turn)
+            logger.info('[AVOID] Obstáculo a %.2fm — desvío heading %.1f° (giro %.0f°)',
+                        min_dist, safe_heading, turn)
             return {
                 'action': 'AVOID',
                 'reason': f'obstacle at {min_dist:.2f}m',
                 'distance': min_dist,
                 'turn_deg': round(turn, 1),
-                'safe_heading': round(safe_yaw, 1),
+                'safe_heading': round(safe_heading, 1),
             }
 
         return {'action': 'NONE', 'reason': 'clear'}
