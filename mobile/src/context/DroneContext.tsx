@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { getWsUrl, getApiUrl, setHostIp } from '../config';
-import { getStoredIp } from '../utils/ipConfig';
+import { getStoredIp, getMaxAltitude, saveMaxAltitude, getMaxSpeed, saveMaxSpeed } from '../utils/ipConfig';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 
@@ -71,6 +71,11 @@ interface DroneContextType {
   dismissError:      (id: string) => void;
   errorHistory:      AppError[];   // historial completo (persistente)
   clearErrorHistory: () => void;
+  // Límites
+  maxAltitude:       number;
+  setMaxAltitude:    (alt: number) => void;
+  maxSpeed:          number;   // 0..1, factor de velocidad horizontal
+  setMaxSpeed:       (spd: number) => void;
 }
 
 const DroneContext = createContext<DroneContextType | undefined>(undefined);
@@ -208,6 +213,19 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const demoArmed        = useRef(false);
   const mountedRef       = useRef(true);
 
+  // ── Límites ──────────────────────────────────────────────────────────────
+  const [maxAltitude, setMaxAltitudeState] = useState<number>(3);
+  const [maxSpeed, setMaxSpeedState] = useState<number>(0.3);
+  const telemetryRef = useRef<Telemetry>(DEFAULT_TELEMETRY);
+  const maxAltitudeRef = useRef<number>(3);
+  const maxSpeedRef = useRef<number>(0.3);
+  const maxAltWarnedRef = useRef(false);
+
+  // Mantener refs sincronizados con estado
+  useEffect(() => { telemetryRef.current = telemetry; }, [telemetry]);
+  useEffect(() => { maxAltitudeRef.current = maxAltitude; }, [maxAltitude]);
+  useEffect(() => { maxSpeedRef.current = maxSpeed; }, [maxSpeed]);
+
   // ── Error handling ────────────────────────────────────────────────────────
 
   const pushError = useCallback((code: string, message: string, severity: ErrorSeverity = 'error', detail?: string) => {
@@ -260,6 +278,16 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const clearErrorHistory = useCallback(() => {
     setErrorHistory([]);
     persistErrorHistory([]);
+  }, []);
+
+  const setMaxAltitude = useCallback((alt: number) => {
+    setMaxAltitudeState(alt);
+    saveMaxAltitude(alt);
+  }, []);
+
+  const setMaxSpeed = useCallback((spd: number) => {
+    setMaxSpeedState(spd);
+    saveMaxSpeed(spd);
   }, []);
 
   // Cargar historial al montar
@@ -430,8 +458,10 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     mountedRef.current = true;
     (async () => {
-      const savedIp = await getStoredIp();
+      const [savedIp, savedMaxAlt, savedMaxSpd] = await Promise.all([getStoredIp(), getMaxAltitude(), getMaxSpeed()]);
       setHostIp(savedIp);
+      setMaxAltitudeState(savedMaxAlt);
+      setMaxSpeedState(savedMaxSpd);
       connectWebSocket();
     })();
     const fallbackTimer = setTimeout(() => {
@@ -446,13 +476,49 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, []);
 
+  // ── Monitorear límite de altura ───────────────────────────────────────────
+  useEffect(() => {
+    const armed = telemetry.armed;
+    const alt = telemetry.altitude;
+    if (alt >= maxAltitude && armed) {
+      if (!maxAltWarnedRef.current) {
+        maxAltWarnedRef.current = true;
+        pushError('MAX_ALT_REACHED', `Altura máxima alcanzada: ${alt.toFixed(1)}m (límite: ${maxAltitude}m)`, 'warn');
+      }
+    } else {
+      maxAltWarnedRef.current = false;
+    }
+  }, [telemetry.altitude, telemetry.armed, maxAltitude, pushError]);
+
+  // ── Enviar velocidad de navegación al backend cuando cambia ───────────────
+  useEffect(() => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      const speedMps = Math.max(0.5, +(maxSpeed * 6).toFixed(2));
+      ws.current.send(JSON.stringify({
+        type: 'SET_NAV_SPEED',
+        params: { speed: speedMps },
+      }));
+    }
+  }, [maxSpeed]);
+
   // ── RC Heartbeat a 10 Hz ──────────────────────────────────────────────────
   useEffect(() => {
     const interval = setInterval(() => {
       if (ws.current?.readyState === WebSocket.OPEN) {
+        const params = { ...rcValues.current };
+        // Clamp throttle si se superó el límite de altura
+        if (params.throttle > 0.5 && telemetryRef.current.altitude >= maxAltitudeRef.current) {
+          params.throttle = 0.5;
+        }
+        // Clamp velocidad horizontal (pitch/roll)
+        const spd = maxSpeedRef.current;
+        if (spd < 1) {
+          params.pitch = Math.max(-spd, Math.min(spd, params.pitch));
+          params.roll  = Math.max(-spd, Math.min(spd, params.roll));
+        }
         ws.current.send(JSON.stringify({
           type:   'RC_CONTROL',
-          params: { ...rcValues.current },
+          params,
         }));
       }
     }, 100);
@@ -475,7 +541,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
 
-      const NO_ACK_COMMANDS = ['RC_CONTROL', 'RC_RESET'];
+      const NO_ACK_COMMANDS = ['RC_CONTROL', 'RC_RESET', 'SET_NAV_SPEED'];
       if (NO_ACK_COMMANDS.includes(type)) {
         ws.current.send(JSON.stringify({ type, params }));
         resolve({ success: true, message: 'RC enviado' });
@@ -664,6 +730,10 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       dismissError,
       errorHistory,
       clearErrorHistory,
+      maxAltitude,
+      setMaxAltitude,
+      maxSpeed,
+      setMaxSpeed,
     }}>
       {children}
     </DroneContext.Provider>

@@ -289,11 +289,27 @@ async def process_command(command: dict, mav_controller) -> dict:
             else:
                 return {"success": False, "message": f"Acción desconocida: {action}"}
 
+        # ── Velocidad de navegación ────────────────────────────────────────────
+        elif cmd_type == "SET_NAV_SPEED":
+            speed = params.get("speed", 2.0)
+            try:
+                cmd = getattr(mav_controller, "cmd", None)
+                if cmd and hasattr(cmd, "set_nav_speed"):
+                    await asyncio.to_thread(cmd.set_nav_speed, speed)
+                    return {"success": True, "message": f"Velocidad de navegación → {speed:.1f} m/s"}
+                return {"success": False, "message": "set_nav_speed no disponible"}
+            except Exception as e:
+                return {"success": False, "message": f"Error: {e}"}
+
         # ── Navegación ────────────────────────────────────────────────────────
         elif cmd_type == "GOTO":
             lat     = params.get("latitude")
             lon     = params.get("longitude")
             alt     = params.get("altitude", 10)
+            # Aplicar velocidad de navegación si está configurada
+            cmd = getattr(mav_controller, "cmd", None)
+            if cmd and hasattr(cmd, "_nav_speed") and cmd._nav_speed is not None:
+                await asyncio.to_thread(cmd.set_nav_speed, cmd._nav_speed)
             success = await asyncio.to_thread(mav_controller.goto, lat, lon, alt)
             return {"success": success, "message": f"Navegando a ({lat}, {lon})" if success else "Error navegando"}
 

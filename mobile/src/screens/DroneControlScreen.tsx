@@ -62,7 +62,7 @@ const MODE_GROUPS = [
 ];
 
 export const DroneControlScreen: React.FC = () => {
-  const { telemetry, connected, demoMode, armDrone, disarmDrone, setJoystick, sendCommand, forceReconnect, pushError } =
+  const { telemetry, connected, demoMode, armDrone, disarmDrone, setJoystick, sendCommand, forceReconnect, pushError, maxAltitude, setMaxAltitude, maxSpeed, setMaxSpeed } =
     useDrone();
   const insets = useSafeAreaInsets();
 
@@ -155,7 +155,8 @@ export const DroneControlScreen: React.FC = () => {
   const droneSat = telemetry?.satellites;
 
   const batColor = bat > 50 ? AMBER : bat > 20 ? YELLOW : RED;
-  const altColor = alt > 0 ? AMBER : LABEL;
+  const altLimitReached = alt >= maxAltitude && maxAltitude > 0;
+  const altColor = altLimitReached ? RED : alt > 0 ? AMBER : LABEL;
 
   const openPanel = () => {
     setPanelOpen(true);
@@ -173,13 +174,21 @@ export const DroneControlScreen: React.FC = () => {
   };
 
   const handleLeftJoystick = (x: number, y: number) => {
-    setNormalizedValues(prev => ({ ...prev, thrNorm: y, yaw: x }));
-    setJoystick(y, x, undefined, undefined);
+    let thr = y;
+    // Si se alcanzó el límite de altura, no permitir subir más (throttle > hover)
+    if (altLimitReached && thr > 0.5) {
+      thr = 0.5;
+    }
+    setNormalizedValues(prev => ({ ...prev, thrNorm: thr, yaw: x }));
+    setJoystick(thr, x, undefined, undefined);
   };
 
   const handleRightJoystick = (x: number, y: number) => {
-    setNormalizedValues(prev => ({ ...prev, pitch: y, roll: x }));
-    setJoystick(undefined, undefined, y, x);
+    const spd = maxSpeed;
+    const clampedPitch = Math.max(-spd, Math.min(spd, y));
+    const clampedRoll  = Math.max(-spd, Math.min(spd, x));
+    setNormalizedValues(prev => ({ ...prev, pitch: clampedPitch, roll: clampedRoll }));
+    setJoystick(undefined, undefined, clampedPitch, clampedRoll);
   };
 
   const runCommand = async (fn: () => Promise<{ success: boolean; message: string }>) => {
@@ -256,10 +265,10 @@ export const DroneControlScreen: React.FC = () => {
 
       {/* ── HEADER ── */}
       <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
-        <View style={styles.headerLeft}>
+        <TouchableOpacity style={styles.headerLeft} onPress={openPanel} activeOpacity={0.7}>
           <Text style={styles.logo}>GCS</Text>
           <Text style={styles.logoSub}>v1.0</Text>
-        </View>
+        </TouchableOpacity>
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={() => setIpModalVisible(true)} activeOpacity={0.6} style={styles.ipBtn}>
             <Text style={styles.ipBtnIcon}>⚙</Text>
@@ -343,7 +352,9 @@ export const DroneControlScreen: React.FC = () => {
                 </View>
                 <View style={[styles.chip, { borderColor: altColor + 'AA' }]}>
                   <Text style={styles.chipLabel}>ALT</Text>
-                  <Text style={styles.chipValue}>{alt.toFixed(1)}</Text>
+                  <Text style={[styles.chipValue, altLimitReached && { color: RED }]}>
+                    {alt.toFixed(1)}{altLimitReached ? ' MAX' : ''}
+                  </Text>
                 </View>
                 <View style={[styles.chip, { borderColor: batColor + 'AA' }]}>
                   <Text style={styles.chipLabel}>BAT</Text>
@@ -557,6 +568,92 @@ export const DroneControlScreen: React.FC = () => {
             </View>
           </View>
 
+          <Text style={styles.sectionLabel}>LÍMITES</Text>
+          <View style={styles.limitsPanel}>
+            <View style={styles.limitRow}>
+              <Text style={styles.limitLabel}>ALTURA MÁX</Text>
+              <View style={styles.limitControls}>
+                <TouchableOpacity
+                  style={styles.limitBtn}
+                  onPress={() => setMaxAltitude(Math.max(1, maxAltitude - 1))}
+                  activeOpacity={0.6}
+                >
+                  <Text style={styles.limitBtnText}>−</Text>
+                </TouchableOpacity>
+                <Text style={[styles.limitValue, altLimitReached && { color: RED }]}>
+                  {maxAltitude} m
+                </Text>
+                <TouchableOpacity
+                  style={styles.limitBtn}
+                  onPress={() => setMaxAltitude(Math.min(500, maxAltitude + 1))}
+                  activeOpacity={0.6}
+                >
+                  <Text style={styles.limitBtnText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={styles.limitPresets}>
+              {[3, 5, 10, 20].map(v => (
+                <TouchableOpacity
+                  key={v}
+                  style={[styles.limitPreset, maxAltitude === v && { borderColor: AMBER, backgroundColor: AMBER + '22' }]}
+                  onPress={() => setMaxAltitude(v)}
+                  activeOpacity={0.6}
+                >
+                  <Text style={[styles.limitPresetText, maxAltitude === v && { color: AMBER }]}>
+                    {v}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {altLimitReached && (
+              <View style={styles.limitWarning}>
+                <Text style={styles.limitWarningText}>⚠ DRON EN ALTURA MÁXIMA</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={{ height: 8 }} />
+
+          <View style={styles.limitsPanel}>
+            <View style={styles.limitRow}>
+              <Text style={styles.limitLabel}>VELOCIDAD MÁX</Text>
+              <View style={styles.limitControls}>
+                <TouchableOpacity
+                  style={styles.limitBtn}
+                  onPress={() => setMaxSpeed(Math.max(0.05, +(maxSpeed - 0.05).toFixed(2)))}
+                  activeOpacity={0.6}
+                >
+                  <Text style={styles.limitBtnText}>−</Text>
+                </TouchableOpacity>
+                <Text style={styles.limitValue}>
+                  {Math.round(maxSpeed * 100)}%
+                </Text>
+                <TouchableOpacity
+                  style={styles.limitBtn}
+                  onPress={() => setMaxSpeed(Math.min(1, +(maxSpeed + 0.05).toFixed(2)))}
+                  activeOpacity={0.6}
+                >
+                  <Text style={styles.limitBtnText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={styles.limitPresets}>
+              {[0.1, 0.2, 0.3, 0.5].map(v => (
+                <TouchableOpacity
+                  key={v}
+                  style={[styles.limitPreset, maxSpeed === v && { borderColor: AMBER, backgroundColor: AMBER + '22' }]}
+                  onPress={() => setMaxSpeed(v)}
+                  activeOpacity={0.6}
+                >
+                  <Text style={[styles.limitPresetText, maxSpeed === v && { color: AMBER }]}>
+                    {Math.round(v * 100)}%
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
           <View style={{ height: 32 }} />
         </ScrollView>
       </Animated.View>
@@ -742,6 +839,41 @@ const styles = StyleSheet.create({
   batteryV: { fontSize: 14, fontWeight: '700' },
   batteryBar: { height: 8, backgroundColor: '#0d0d1a', borderRadius: 4, overflow: 'hidden' },
   batteryFill: { height: '100%', borderRadius: 4 },
+
+  // ── LÍMITES ──
+  limitsPanel: {
+    backgroundColor: GLASS, borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: GLASS_BORDER,
+  },
+  limitRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  limitLabel: { color: LABEL, fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
+  limitControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  limitBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1, borderColor: GLASS_BORDER,
+  },
+  limitBtnText: { color: AMBER, fontSize: 16, fontWeight: '700', lineHeight: 18 },
+
+  limitValue: { color: AMBER, fontSize: 16, fontWeight: '900', fontFamily: 'monospace', minWidth: 50, textAlign: 'center' },
+  limitPresets: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  limitPreset: {
+    flex: 1, paddingVertical: 6, borderRadius: 8,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  limitPresetText: { color: LABEL, fontSize: 10, fontWeight: '700' },
+  limitWarning: {
+    marginTop: 8, paddingVertical: 6, paddingHorizontal: 10,
+    borderRadius: 8, backgroundColor: RED + '18',
+    borderWidth: 1, borderColor: RED + '55',
+    alignItems: 'center',
+  },
+  limitWarningText: { color: RED, fontSize: 8, fontWeight: '900', letterSpacing: 1 },
 
   // ── TOAST ──
   toast: {

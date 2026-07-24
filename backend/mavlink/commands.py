@@ -19,6 +19,7 @@ class DroneCommands:
 
     def __init__(self, connection):
         self.conn = connection
+        self._nav_speed = None  # m/s, None = usar WPNAV_SPEED del Pixhawk
 
     # ── Comandos básicos ───────────────────────────────────────────────────────
 
@@ -172,6 +173,29 @@ class DroneCommands:
     def loiter(self):
         return self.set_mode("LOITER")
 
+    # ── Velocidad de navegación ────────────────────────────────────────────────
+
+    def set_nav_speed(self, speed_mps: float):
+        """Establecer velocidad de navegación vía MAV_CMD_DO_CHANGE_SPEED."""
+        logger.info(f"🐢 NAV SPEED — {speed_mps:.1f} m/s")
+        self._nav_speed = speed_mps
+        with self.conn._lock:
+            master = self.conn.master
+            if not master:
+                raise ConnectionError("No hay conexión con Pixhawk")
+            master.mav.command_long_send(
+                master.target_system,
+                master.target_component,
+                mavutil.mavlink.MAV_CMD_DO_CHANGE_SPEED,
+                0,
+                1,           # speed type: ground speed
+                speed_mps,
+                -1,          # throttle: no change
+                0,           # absolute
+                0, 0, 0,
+            )
+        logger.info(f"✅ Velocidad de navegación → {speed_mps:.1f} m/s")
+
     # ── Navegación ─────────────────────────────────────────────────────────────
 
     def goto_position(self, lat, lon, alt):
@@ -180,6 +204,13 @@ class DroneCommands:
         if current_mode != "GUIDED":
             self.set_mode("GUIDED")
             time.sleep(1)
+
+        # Aplicar velocidad de navegación si está configurada
+        if self._nav_speed is not None:
+            try:
+                self.set_nav_speed(self._nav_speed)
+            except Exception as e:
+                logger.warning(f"No se pudo aplicar velocidad de navegación: {e}")
 
         with self.conn._lock:
             master = self.conn.master
