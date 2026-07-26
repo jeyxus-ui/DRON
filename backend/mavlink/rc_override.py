@@ -36,9 +36,9 @@ class RCOverrideController:
     # ── Constantes ───────────────────────────────────────────────────────────
 
     IDLE_THROTTLE = 0.15    # 15% = ~1150 PWM (idle armado)
-    ARM_IDLE_DURATION = 0.0  # sin idle — joystick responde inmediatamente
-    DISARM_TIMEOUT = 10.0    # segundos sin conexión → empezar a reducir
-    RAMP_DOWN_DURATION = 5.0  # segundos para reducir throttle de actual → 0
+    ARM_IDLE_DURATION = 1.0  # 1 segundo de espera post-armado antes de activar joystick
+    DISARM_TIMEOUT = 60.0    # segundos sin NINGÚN cliente conectado → empezar a reducir
+    RAMP_DOWN_DURATION = 15.0 # segundos para reducir throttle de actual → 0
 
     def __init__(self, mavlink_connection):
         self.conn    = mavlink_connection
@@ -46,18 +46,22 @@ class RCOverrideController:
         self.running  = False
         self.thread   = None
 
-        # Valores normalizados de joystick
-        self.throttle = 0.0
+        # Valores normalizados de joystick — throttle inicia en idle (15%)
+        self.throttle = 0.15
         self.yaw      = 0.0
         self.pitch    = 0.0
         self.roll     = 0.0
 
         self.lock = threading.Lock()
         self._failsafe_fired = False
+        self._idle_logged = False  # Solo loguear "idle completado" una vez
         self._armed_at: float | None = None  # timestamp de armado, None si desarmado
         self._send_failures = 0
         self._disconnected_at: float | None = None  # timestamp de desconexión WS
         self._disarmed_by_failsafe = False
+        self._active = False  # Solo enviar RC override cuando esté activo (post-ARM)
+        self._connected_clients = 0  # Contador de clientes WebSocket activos
+        self._autonomous = False  # Pausar RC durante operaciones autónomas (TAKEOFF, misión)
         logger.info("RCOverrideController inicializado")
 
     def start(self):
@@ -81,6 +85,35 @@ class RCOverrideController:
             try:
                 now = time.time()
 
+                # No enviar RC override antes del primer ARM (evita interferir con EKF init)
+                if not self._active:
+                    time.sleep(0.5)
+                    continue
+
+                # Enviar valores neutros durante operaciones autónomas (TAKEOFF, misión, etc.)
+                if self._autonomous:
+                    master = self.conn.master
+                    if master is not None:
+                        try:
+                            master.mav.rc_channels_override_send(
+                                master.target_system,
+                                master.target_component,
+                                self.PWM_CENTER,
+                                self.PWM_CENTER,
+                                self.PWM_CENTER,
+                                self.PWM_CENTER,
+                                0, 0, 0, 0,
+                            )
+                        except Exception:
+                            pass
+                    time.sleep(0.2)
+                    continue
+
+                # Pausar envío durante DISARM para no interferir con el comando
+                if getattr(self.conn, '_disarming', False):
+                    time.sleep(0.1)
+                    continue
+
                 with self.lock:
                     use_throttle = self.throttle
                     use_yaw      = self.yaw
@@ -99,8 +132,8 @@ class RCOverrideController:
                             use_roll = 0.0
                             if int(idle_remaining) != int(idle_remaining + 0.1):
                                 logger.info('⏳ IDLE ARM — %.0f s restantes (joystick bloqueado)', idle_remaining)
-                        elif not self._failsafe_fired:
-                            self._failsafe_fired = True
+                        elif not self._idle_logged:
+                            self._idle_logged = True
                             logger.info('✅ IDLE ARM — periodo de idle completado, joystick activo')
 
                 # ── Ramp-down por desconexión (fuera del lock) ────────────
@@ -116,7 +149,7 @@ class RCOverrideController:
                         else:
                             with self.lock:
                                 self._disarmed_by_failsafe = True
-                            logger.critical('🚨 FAILSAFE — throttle 0, desarmando motores')
+                            logger.critical('🚨 FAILSAFE — throttle 0, desarmando motores (force)')
                             master = self.conn.master
                             if master is not None:
                                 try:
@@ -124,9 +157,12 @@ class RCOverrideController:
                                         master.target_system,
                                         master.target_component,
                                         mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-                                        0, 0, 0, 0, 0, 0, 0, 0,
+                                        0,
+                                        0,   # param1: 0=disarm
+                                        21196,  # param2: magic_force_arm_disarm_value
+                                        0, 0, 0, 0, 0,
                                     )
-                                    logger.critical('✅ FAILSAFE — comando DISARM enviado')
+                                    logger.critical('✅ FAILSAFE — force DISARM enviado (param2=21196)')
                                 except Exception as e:
                                     logger.critical('❌ FAILSAFE — error enviando DISARM: %s', e)
                             time.sleep(0.1)
@@ -218,30 +254,37 @@ class RCOverrideController:
 
     def on_disconnect(self):
         """
-        Marca desconexión del cliente — NO resetea controles.
-        El dron mantiene la última velocidad/actitud.
-        Si no hay reconexión en DISARM_TIMEOUT segundos,
-        el _send_loop desarma automáticamente.
+        Marca desconexión de UN cliente WebSocket.
+        Solo activa failsafe si TODOS los clientes se desconectaron.
         """
         with self.lock:
+            self._connected_clients = max(0, self._connected_clients - 1)
+            if self._connected_clients > 0:
+                logger.info('⏸ Cliente desconectado — %d cliente(s) activo(s), failsafe NO activado', self._connected_clients)
+                return
             self._disconnected_at = time.time()
             self._disarmed_by_failsafe = False
-            logger.warning('⏸ RC desconectado — failsafe en %.0f s si no reconecta', self.DISARM_TIMEOUT)
+            logger.warning('⏸ Sin clientes conectados — failsafe en %.0f s si no reconecta', self.DISARM_TIMEOUT)
 
     def on_reconnect(self):
         """
-        Cancela el failsafe de desconexión.
-        El cliente se reconectó antes del timeout.
+        Marca reconexión de UN cliente WebSocket.
+        Cancela failsafe si estaba activo (al menos un cliente está vivo).
         """
         with self.lock:
-            self._disconnected_at = None
-            self._disarmed_by_failsafe = False
-            logger.info('🔁 RC reconectado — failsafe cancelado')
+            self._connected_clients += 1
+            if self._disconnected_at is not None:
+                self._disconnected_at = None
+                self._disarmed_by_failsafe = False
+                logger.info('🔁 Cliente reconectado — failsafe cancelado (%d activo(s))', self._connected_clients)
+            else:
+                logger.info('🔁 Cliente conectado (%d activo(s))', self._connected_clients)
 
     def set_controls(self, throttle=None, yaw=None, pitch=None, roll=None):
         """
         Establece múltiples controles normalizados a la vez.
         Todos los valores deben estar en rango normalizado (no PWM).
+        También cancela failsafe si estaba activo.
         """
         with self.lock:
             if throttle is not None:
@@ -252,8 +295,6 @@ class RCOverrideController:
                 self.pitch = max(-1.0, min(1.0, float(pitch)))
             if roll is not None:
                 self.roll = max(-1.0, min(1.0, float(roll)))
-            self._failsafe_fired = False
-            # Cualquier set_controls implica cliente activo → cancela failsafe
             if self._disconnected_at is not None:
                 self._disconnected_at = None
                 self._disarmed_by_failsafe = False
@@ -264,11 +305,21 @@ class RCOverrideController:
             self.throttle = self.yaw = self.pitch = self.roll = 0.0
             self._failsafe_fired = False
 
+    def set_autonomous(self, autonomous: bool):
+        """Pausar/reanudar RC override durante operaciones autónomas (TAKEOFF, misión)."""
+        with self.lock:
+            self._autonomous = autonomous
+            if autonomous:
+                logger.info('🤖 RC override PAUSADO — modo autónomo activo')
+            else:
+                logger.info('🎮 RC override REANUDADO — modo manual')
+
     def set_armed(self, armed: bool):
         with self.lock:
             if armed:
                 self._armed_at = time.time()
                 self._failsafe_fired = False
+                self._active = True
                 logger.info('⏳ ARM — idle %.0f s activado (joystick bloqueado)', self.ARM_IDLE_DURATION)
             else:
                 self._armed_at = None
@@ -277,7 +328,9 @@ class RCOverrideController:
                 self.pitch = 0.0
                 self.roll = 0.0
                 self._failsafe_fired = False
-                logger.info('⏹ DISARM — idle cancelado, RC reseteado')
+                self._idle_logged = False
+                self._active = False
+                logger.info('⏹ DISARM — idle cancelado, RC reseteado, envío detenido')
 
     def is_in_idle(self) -> bool:
         with self.lock:
@@ -301,4 +354,7 @@ class RCOverrideController:
                 "roll_pwm":     self._to_pwm(self.roll),
                 "in_idle":      self._armed_at is not None and (time.time() - self._armed_at) < self.ARM_IDLE_DURATION,
                 "idle_remaining": round(max(0, self.ARM_IDLE_DURATION - (time.time() - self._armed_at)), 1) if self._armed_at else 0,
+                "connected_clients": self._connected_clients,
+                "failsafe_active": self._disconnected_at is not None,
+                "failsafe_remaining": round(max(0, self.DISARM_TIMEOUT - (time.time() - self._disconnected_at)), 1) if self._disconnected_at else None,
             }

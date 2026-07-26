@@ -17,6 +17,18 @@ export interface AppError {
   acknowledged: boolean;  // true si ya fue descartado del banner (sigue en historial)
 }
 
+interface ConnectionHealth {
+  connected:              boolean;
+  healthy:                boolean;
+  heartbeat_age_s:        number | null;
+  last_msg_age_s:         number | null;
+  socket_alive:           boolean;
+  reconnecting:           boolean;
+  needs_reconnect:        boolean;
+  probe_failures:         number;
+  device:                 string;
+}
+
 interface Telemetry {
   armed:              boolean;
   mode:               string;
@@ -38,6 +50,8 @@ interface Telemetry {
   lidar_closest_angle?:      number;
   lidar_points?:             number;
   obstacle_ahead?:           boolean;
+  // Salud de conexión MAVLink
+  connection_health?:        ConnectionHealth;
 }
 
 export interface CommandResult {
@@ -49,6 +63,8 @@ interface DroneContextType {
   telemetry:       Telemetry;
   connected:       boolean;
   demoMode:        boolean;
+  connectionHealth: ConnectionHealth | null;
+  mavlinkOnline:   boolean;
   sendCommand:     (type: string, params?: any) => Promise<CommandResult>;
   armDrone:        () => Promise<CommandResult>;
   disarmDrone:     () => Promise<CommandResult>;
@@ -69,12 +85,12 @@ interface DroneContextType {
   pushError:         (code: string, message: string, severity?: ErrorSeverity, detail?: string) => void;
   clearErrors:       () => void;
   dismissError:      (id: string) => void;
-  errorHistory:      AppError[];   // historial completo (persistente)
+  errorHistory:      AppError[];
   clearErrorHistory: () => void;
   // Límites
   maxAltitude:       number;
   setMaxAltitude:    (alt: number) => void;
-  maxSpeed:          number;   // 0..1, factor de velocidad horizontal
+  maxSpeed:          number;
   setMaxSpeed:       (spd: number) => void;
 }
 
@@ -204,6 +220,8 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [demoMode, setDemoMode] = useState(false);
   const [errors, setErrors] = useState<AppError[]>([]);
   const [errorHistory, setErrorHistory] = useState<AppError[]>([]);
+  const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth | null>(null);
+  const [mavlinkOnline, setMavlinkOnline] = useState(true);
 
   const ws               = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -212,6 +230,8 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const demoTick         = useRef<ReturnType<typeof setInterval> | null>(null);
   const demoArmed        = useRef(false);
   const mountedRef       = useRef(true);
+  const reconnectAttempt = useRef(0);
+  const demoDelayTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Límites ──────────────────────────────────────────────────────────────
   const [maxAltitude, setMaxAltitudeState] = useState<number>(3);
@@ -348,11 +368,16 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       clearTimeout(reconnectTimeout.current);
       reconnectTimeout.current = null;
     }
+    if (demoDelayTimer.current) {
+      clearTimeout(demoDelayTimer.current);
+      demoDelayTimer.current = null;
+    }
     if (ws.current) {
       ws.current.onclose = null;
       ws.current.close();
       ws.current = null;
     }
+    reconnectAttempt.current = 0;
     setConnected(false);
     startDemo();
     setTimeout(() => {
@@ -365,14 +390,19 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const connectWebSocket = useCallback(() => {
     try {
       const url = getWsUrl();
-      console.log(`[WS] Conectando a ${url}...`);
+      console.log(`[WS] Conectando a ${url}... (intento ${reconnectAttempt.current + 1})`);
       const newWs = new WebSocket(url);
 
       newWs.onopen = () => {
         console.log('[WS] ✅ Conexión establecida');
         pushError('WS_CONNECTED', 'Conectado al servidor', 'info');
         setConnected(true);
+        reconnectAttempt.current = 0;
         stopDemo();
+        if (demoDelayTimer.current) {
+          clearTimeout(demoDelayTimer.current);
+          demoDelayTimer.current = null;
+        }
       };
 
       newWs.onmessage = (event) => {
@@ -384,6 +414,27 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               pushError('TELEMETRY_ERROR', `Error en telemetría: ${message.data.error}`, 'warn');
             } else {
               setTelemetry(message.data);
+              if (message.data.connection_health) {
+                setConnectionHealth(message.data.connection_health);
+                setMavlinkOnline(message.data.connection_health.healthy ?? true);
+              }
+            }
+
+          } else if (message.type === 'connection_alert') {
+            const alertType = message.alert as string;
+            if (alertType === 'mavlink_lost') {
+              setMavlinkOnline(false);
+              pushError('MAVLINK_LOST', message.message || 'Conexión MAVLink perdida — reconectando...', 'critical');
+              console.warn('[WS] ⚠️ MAVLink lost alert received');
+            } else if (alertType === 'mavlink_restored') {
+              setMavlinkOnline(true);
+              pushError('MAVLINK_RESTORED', message.message || 'Conexión MAVLink restaurada', 'info');
+              console.log('[WS] ✅ MAVLink restored alert received');
+            } else if (alertType === 'connected') {
+              if (message.mavlink) {
+                setConnectionHealth(message.mavlink);
+                setMavlinkOnline(message.mavlink.healthy ?? true);
+              }
             }
 
           } else if (message.type === 'command_ack') {
@@ -413,10 +464,10 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
 
       newWs.onerror = () => {
-        pushError('WS_ERROR', 'Error de conexión WebSocket con el servidor', 'critical');
         console.error('[WS] ❌ Error de WebSocket');
         setConnected(false);
-        startDemo();
+        // NO activar demo mode inmediatamente en onerror
+        // Esperar a onclose para decidir
       };
 
       newWs.onclose = (event) => {
@@ -438,12 +489,21 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         pendingCommands.current.clear();
 
         if (mountedRef.current) {
+          // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+          reconnectAttempt.current += 1;
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current - 1), 30000);
+          console.log(`[WS] 🔄 Reconectando en ${delay}ms (intento ${reconnectAttempt.current})...`);
+
+          // Activar demo mode solo después de 3 intentos fallidos (~7s)
+          if (reconnectAttempt.current >= 3 && !demoTick.current) {
+            startDemo();
+          }
+
           reconnectTimeout.current = setTimeout(() => {
             console.log('[WS] 🔄 Reconectando...');
             pushError('WS_RECONNECT', 'Reconectando al servidor...', 'info');
             connectWebSocket();
-            startDemo();
-          }, 3000);
+          }, delay);
         }
       };
 
@@ -465,12 +525,16 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       connectWebSocket();
     })();
     const fallbackTimer = setTimeout(() => {
-      if (ws.current?.readyState !== WebSocket.OPEN) startDemo();
-    }, 5000);
+      if (ws.current?.readyState !== WebSocket.OPEN && !connected) {
+        console.log('[WS] ⏱ Timeout de conexión — activando modo demo');
+        startDemo();
+      }
+    }, 8000);
     return () => {
       mountedRef.current = false;
       ws.current?.close();
       if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+      if (demoDelayTimer.current) clearTimeout(demoDelayTimer.current);
       clearTimeout(fallbackTimer);
       stopDemo();
     };
@@ -711,6 +775,8 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       telemetry,
       connected,
       demoMode,
+      connectionHealth,
+      mavlinkOnline,
       sendCommand,
       armDrone,
       disarmDrone,

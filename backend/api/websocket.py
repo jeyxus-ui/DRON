@@ -62,12 +62,53 @@ manager = ConnectionManager()
 
 
 async def telemetry_broadcaster(mav_controller):
-    """Tarea en background que transmite telemetría a 10 Hz."""
+    """Tarea en background que transmite telemetría a 10 Hz + connection health."""
     logger.info("Iniciando broadcaster de telemetría...")
+    _last_healthy = True  # track state changes for alerts
+    _debug_counter = 0
     while True:
         try:
             if manager.active_connections:
                 telemetry = await get_telemetry_data(mav_controller)
+
+                # Connection health
+                conn = getattr(mav_controller, "conn", None)
+                if conn and hasattr(conn, "get_connection_health"):
+                    health = conn.get_connection_health()
+                    telemetry["connection_health"] = health
+                    # Send alert when MAVLink drops
+                    healthy = health.get("healthy", True)
+
+                    _debug_counter += 1
+                    if _debug_counter % 50 == 1 or _last_healthy != healthy:
+                        logger.warning(
+                            "[BROADCASTER] healthy=%s (last=%s) | socket=%s probe_fails=%s "
+                            "connected=%s hb_age=%s msg_age=%s reconnecting=%s needs_reconnect=%s",
+                            healthy, _last_healthy,
+                            health.get("socket_alive"), health.get("probe_failures"),
+                            health.get("connected"), health.get("heartbeat_age_s"),
+                            health.get("last_msg_age_s"),
+                            health.get("reconnecting"), health.get("needs_reconnect"),
+                        )
+
+                    if _last_healthy and not healthy:
+                        await manager.broadcast({
+                            "type": "connection_alert",
+                            "alert": "mavlink_lost",
+                            "message": "Conexión MAVLink perdida — reconectando...",
+                            "timestamp": datetime.utcnow().isoformat(),
+                        })
+                        logger.warning("⚠️ WebSocket: alerta mavlink_lost ENVIADA a clientes")
+                    elif not _last_healthy and healthy:
+                        await manager.broadcast({
+                            "type": "connection_alert",
+                            "alert": "mavlink_restored",
+                            "message": "Conexión MAVLink restaurada",
+                            "timestamp": datetime.utcnow().isoformat(),
+                        })
+                        logger.info("✅ WebSocket: conexión MAVLink restaurada, alerta enviada")
+                    _last_healthy = healthy
+
                 await manager.broadcast({
                     "type": "telemetry",
                     "data": telemetry,
@@ -203,7 +244,13 @@ async def process_command(command: dict, mav_controller) -> dict:
     try:
         # ── Comandos de estado ────────────────────────────────────────────────
         if cmd_type == "ARM":
-            success = await asyncio.to_thread(mav_controller.arm)
+            force = params.get("force", False)
+            if not force:
+                preflight = mav_controller.preflight_checks()
+                failed = [k for k, v in preflight.items() if not v]
+                if failed:
+                    return {"success": False, "message": f"Pre-flight checks fallidos: {', '.join(failed)} — usa force=true para bypass"}
+            success = await asyncio.to_thread(mav_controller.arm, force)
             if success:
                 rc = getattr(mav_controller, "rc", None)
                 if rc:
@@ -488,6 +535,20 @@ async def websocket_endpoint(websocket: WebSocket):
     rc = getattr(mav_controller, "rc", None) if mav_controller else None
     if rc:
         rc.on_reconnect()
+
+    # Enviar estado inicial de conexión MAVLink al cliente
+    try:
+        conn = getattr(mav_controller, "conn", None) if mav_controller else None
+        health = conn.get_connection_health() if conn and hasattr(conn, "get_connection_health") else None
+        await manager.send(websocket, {
+            "type": "connection_alert",
+            "alert": "connected",
+            "message": "Conexión WebSocket establecida",
+            "mavlink": health,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+    except Exception:
+        pass
 
     try:
         while True:

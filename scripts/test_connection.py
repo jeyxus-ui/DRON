@@ -1,66 +1,69 @@
-import sys
-import time
-import argparse
-from pymavlink import mavutil
+#!/usr/bin/env python3
+"""Test WebSocket connection and verify connection_alert welcome message."""
+import asyncio
+import json
 
-def wait_heartbeat(connection):
-    """
-    Waits for a heartbeat from the drone and prints information.
-    """
-    print(f"Esperando heartbeat en {connection.address}...")
-    try:
-        # Wait for the first heartbeat
-        # This sets the system and component ID of remote system for the link
-        connection.wait_heartbeat(timeout=10)
-    except Exception as e:
-        print(f"Error esperando heartbeat: {e}")
-        return False
+try:
+    import websockets
+except ImportError:
+    import subprocess, sys
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'websockets', '--break-system-packages'])
+    import websockets
 
-    if connection.target_system == 0:
-        print("No se recibió heartbeat (Time out). Verifica la conexión.")
-        return False
 
-    print(f"¡Conectado! Heartbeat recibido de Sistema {connection.target_system}, Componente {connection.target_component}")
-    return True
+async def test():
+    uri = 'ws://127.0.0.1:8000/ws/telemetry'
+    print(f"Connecting to {uri}...")
+    async with websockets.connect(uri) as ws:
+        print("=== WS Connected ===")
+        msgs = []
+        for i in range(5):
+            try:
+                raw = await asyncio.wait_for(ws.recv(), timeout=5)
+                data = json.loads(raw)
+                t = data.get("type", "?")
+                if t == "connection_alert":
+                    alert = data.get("alert")
+                    mav = data.get("mavlink")
+                    print(f"  MSG {i+1}: type={t}  alert={alert}  mavlink={json.dumps(mav) if mav else 'none'}")
+                elif t == "telemetry":
+                    ch = data.get("data", {}).get("connection_health")
+                    healthy = ch.get("healthy") if ch else None
+                    age = ch.get("heartbeat_age_s") if ch else None
+                    print(f"  MSG {i+1}: type={t}  armed={data['data'].get('armed')}  mode={data['data'].get('mode')}  healthy={healthy}  hb_age={age}")
+                elif t == "command_ack":
+                    print(f"  MSG {i+1}: type={t}  cmd={data.get('command')}  result={data.get('result',{}).get('message','')}")
+                else:
+                    print(f"  MSG {i+1}: type={t}")
+                msgs.append(data)
+            except asyncio.TimeoutError:
+                print(f"  MSG {i+1}: TIMEOUT (no message in 5s)")
+                break
 
-def main():
-    parser = argparse.ArgumentParser(description="Prueba de conexión con Dron Real via MAVLink")
-    parser.add_argument("--connect", required=True, help="Connection string (ej. COM3, /dev/ttyUSB0, udp:127.0.0.1:14550)")
-    parser.add_argument("--baud", type=int, default=57600, help="Baud rate (default: 57600). Usa 115200 para USB directo.")
-    
-    args = parser.parse_args()
+        # Verify we got a connection_alert
+        alerts = [m for m in msgs if m.get("type") == "connection_alert"]
+        telemetries = [m for m in msgs if m.get("type") == "telemetry"]
 
-    print(f"Intentando conectar a: {args.connect} con baudios {args.baud}")
-    
-    try:
-        # Create the connection
-        # source_system=255 means we act as a GCS (Ground Control Station)
-        connection = mavutil.mavlink_connection(args.connect, baud=args.baud, source_system=255)
-    except Exception as e:
-        print(f"Error creando conexión: {e}")
-        return
+        print(f"\n=== Results ===")
+        print(f"  Total messages: {len(msgs)}")
+        print(f"  connection_alert messages: {len(alerts)}")
+        print(f"  telemetry messages: {len(telemetries)}")
 
-    if wait_heartbeat(connection):
-        print("\n--- Escuchando Mensajes (Ctrl+C para salir) ---")
-        try:
-            while True:
-                msg = connection.recv_match(blocking=True, timeout=1.0)
-                if not msg:
-                    continue
-                
-                # Filter interesting messages to avoid spam
-                if msg.get_type() == 'HEARTBEAT':
-                    mode = mavutil.mode_string_v10(msg)
-                    print(f"HEARTBEAT: Mode={mode}, BaseMode={msg.base_mode}, State={msg.system_status}")
-                elif msg.get_type() == 'ATTITUDE':
-                    print(f"ATTITUDE: Roll={msg.roll:.2f}, Pitch={msg.pitch:.2f}, Yaw={msg.yaw:.2f}")
-                elif msg.get_type() == 'SYS_STATUS':
-                    print(f"Bateria: {msg.voltage_battery/1000.0:.1f}V, Carga: {msg.load/10.0}%")
-                    
-        except KeyboardInterrupt:
-            print("\nDeteniendo prueba.")
-        finally:
-            connection.close()
+        if alerts:
+            print(f"  PASSED: Got connection_alert welcome message")
+        else:
+            print(f"  FAILED: No connection_alert received")
 
-if _name_ == "_main_":
-    main()
+        health_in_telemetry = any(
+            m.get("data", {}).get("connection_health") for m in telemetries
+        )
+        if health_in_telemetry:
+            print(f"  PASSED: Telemetry includes connection_health")
+        else:
+            print(f"  FAILED: Telemetry missing connection_health")
+
+        print("\n=== WebSocket Test DONE ===")
+
+
+if __name__ == "__main__":
+    asyncio.run(test())

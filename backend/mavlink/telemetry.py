@@ -178,23 +178,50 @@ class DroneTelemetry:
                 msg = self.conn.recv_match(blocking=False)
                 
                 if msg:
+                    # Track ANY message received
+                    self.conn.update_msg_time()
                     mtype = msg.get_type()
+                    if mtype == "COMMAND_ACK":
+                        print(f"[MAVLINK-DEBUG] COMMAND_ACK received: cmd={msg.command} result={msg.result}", flush=True)
+                    elif mtype == "STATUSTEXT":
+                        try:
+                            text = msg.text.decode('utf-8', errors='replace') if isinstance(msg.text, bytes) else str(msg.text)
+                        except Exception:
+                            text = str(msg.text)
+                        print(f"[MAVLINK-DEBUG] STATUSTEXT: {text}", flush=True)
+                        if not self.conn._ekf_ready.is_set() and ("tilt alignment complete" in text or "yaw alignment complete" in text):
+                            self.conn._ekf_ready.set()
+                            logger.info("✅ EKF alignment detected: %s", text)
+                    elif mtype == "EKF_STATUS_REPORT":
+                        if not self.conn._ekf_ready.is_set():
+                            flags = getattr(msg, 'flags', 0)
+                            if flags & 0x07:
+                                self.conn._ekf_ready.set()
+                                logger.info("✅ EKF alignment detected from STATUS_REPORT (flags=0x%02x)", flags)
+                    elif mtype not in ("VFR_HUD", "HEARTBEAT", "GPS_RAW_INT", "BATTERY_STATUS", "ATTITUDE", "LOCAL_POSITION_NED", "SYS_STATUS", "GLOBAL_POSITION_INT", "RAW_IMU"):
+                        print(f"[MAVLINK-DEBUG] Other msg: {mtype}", flush=True)
                     # Guardar COMMAND_ACK para wait_ack
                     if mtype == "COMMAND_ACK":
                         with self.conn._ack_lock:
-                            self.conn._pending_ack = msg
+                            self.conn._pending_acks[msg.command] = msg
                             logger.info(f"COMMAND_ACK stored: cmd={msg.command} result={msg.result}")
+                        self.conn.update_ack_time()
                     # Guardar mensajes de misión para upload_mission
                     elif mtype in ("MISSION_REQUEST_INT", "MISSION_REQUEST", "MISSION_ACK"):
                         with self.conn._pending_msgs_lock:
                             self.conn._pending_msgs[mtype] = msg
                     self._process_message(msg)
+                else:
+                    # No message received — dormir un poco y seguir
+                    pass
                 
                 time.sleep(0.01)  # 100 Hz
                 
             except Exception as e:
-                logger.error(f"Error en read_loop: {e}")
-                time.sleep(0.1)
+                print(f"[READ_LOOP-ERROR] {type(e).__name__}: {e}", flush=True)
+                logger.error("Error en read_loop: %s — marking connection dead", e, exc_info=True)
+                self.conn.mark_dead(f"read_loop exception: {type(e).__name__}: {e}")
+                time.sleep(1)
     
     def _process_message(self, msg):
         """Procesar mensaje MAVLink"""
@@ -247,16 +274,22 @@ class DroneTelemetry:
                 }
             
             elif msg_type == "HEARTBEAT":
+                self.conn.update_heartbeat()
                 was_armed = self.data['armed']
                 self.data['armed'] = bool(
                     msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
                 )
                 # Notificar al RC controller si cambia el estado armado
+                # SKIP si estamos en proceso de DISARM — no re-activar RC override
+                disarming = getattr(self.conn, '_disarming', False)
                 if was_armed != self.data['armed'] and hasattr(self.conn, '_rc_callback'):
-                    try:
-                        self.conn._rc_callback(self.data['armed'])
-                    except Exception as e:
-                        logger.error("Error en RC callback: %s", e)
+                    if disarming and self.data['armed']:
+                        pass
+                    else:
+                        try:
+                            self.conn._rc_callback(self.data['armed'])
+                        except Exception as e:
+                            logger.error("Error en RC callback: %s", e)
                 mode_str = mavutil.mode_string_v10(msg)
                 # ArduPilot Copter mode numbers when mode_string_v10 returns raw format
                 ARDU_COPTER_MODES = {
@@ -288,13 +321,13 @@ class DroneTelemetry:
     
     def get_all(self):
         return {
-            "connected": self.conn.is_connected(),
+            "connected": self.conn.connected,
             **self.data
         }
     
     def get_status(self):
         return {
-            "connected": self.conn.is_connected(),
+            "connected": self.conn.connected,
             "armed": self.data['armed'],
             "mode": self.data['mode'],
             "system_status": self.data['system_status']

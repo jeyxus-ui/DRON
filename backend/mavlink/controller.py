@@ -10,6 +10,7 @@ from .commands import DroneCommands
 from .telemetry import DroneTelemetry
 from pymavlink import mavutil
 import logging
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -63,13 +64,38 @@ class MAVController:
             logger.debug("No se pudo iniciar auto-reconnect automáticamente")
         self.cmd = DroneCommands(self.conn)
         self.telemetry = DroneTelemetry(self.conn)
+        self.telemetry.start()
         self.cmd.telemetry = self.telemetry
-        self.master = self.conn.master
         self.rc = RCOverrideController(self.conn)
         self.rc.start()
-        # Callback desde telemetría HEARTBEAT para detectar armado real
         self.conn._rc_callback = self.rc.set_armed
-        logger.info("RC Override Controller iniciado")
+        self.conn._post_reconnect = self.telemetry._request_streams
+        logger.info("Telemetry + RC Override Controller iniciados")
+
+    @property
+    def master(self):
+        return self.conn.master if self.conn else None
+
+    def _set_initial_params(self):
+        """Set critical params on connection (ARMING_CHECK=0, DISARM_DELAY=0)."""
+        try:
+            m = self.conn.master
+            if not m:
+                return
+            import time as _t
+            params = [
+                (b'ARMING_CHECK', 0),
+                (b'DISARM_DELAY', 0),
+            ]
+            for name, val in params:
+                m.mav.param_set_send(
+                    m.target_system, m.target_component,
+                    name, float(val), mavutil.mavlink.MAV_PARAM_TYPE_REAL32
+                )
+                _t.sleep(0.3)
+            logger.info("SITL params set: ARMING_CHECK=0, DISARM_DELAY=0")
+        except Exception as e:
+            logger.warning(f"Failed to set initial params: {e}")
 
     # Telemetry / status wrappers
     def get_telemetry(self):
@@ -89,22 +115,111 @@ class MAVController:
 
     # Basic commands
     def arm(self, force=True):
-        return self.cmd.arm(force=force)
+        try:
+            self.conn.suppress_probe(True)
+        except Exception:
+            pass
+        try:
+            return self.cmd.arm(force=force)
+        finally:
+            try:
+                self.conn.suppress_probe(False)
+            except Exception:
+                pass
 
     def disarm(self, force=False):
-        return self.cmd.disarm(force=force)
+        try:
+            self.conn.suppress_probe(True)
+        except Exception:
+            pass
+        try:
+            return self.cmd.disarm(force=force)
+        finally:
+            try:
+                self.conn.suppress_probe(False)
+            except Exception:
+                pass
 
     def set_mode(self, mode):
         return self.cmd.set_mode(mode)
 
     def takeoff(self, altitude):
-        return self.cmd.takeoff(altitude)
+        try:
+            self.rc.set_autonomous(True)
+            self.conn.suppress_probe(True)
+        except Exception:
+            pass
+        try:
+            result = self.cmd.takeoff(altitude)
+            if result:
+                t = threading.Thread(target=self._takeoff_climb_guard, args=(altitude,), daemon=True)
+                t.start()
+            else:
+                try:
+                    self.rc.set_autonomous(False)
+                    self.conn.suppress_probe(False)
+                except Exception:
+                    pass
+            return result
+        except Exception:
+            try:
+                self.rc.set_autonomous(False)
+                self.conn.suppress_probe(False)
+            except Exception:
+                pass
+            raise
+
+    def _takeoff_climb_guard(self, target_alt):
+        """Mantiene autonomous=True hasta que el dron suba significativamente."""
+        min_alt = max(target_alt * 0.25, 3.0)
+        timeout = 60
+        start = time.time()
+        logger.info(f"[TAKEOFF-GUARD] Esperando alt >= {min_alt:.1f}m (timeout {timeout}s)")
+        while time.time() - start < timeout:
+            alt = 0
+            if self.telemetry and self.telemetry.data:
+                alt = self.telemetry.data.get('altitude', 0)
+            if alt >= min_alt:
+                logger.info(f"[TAKEOFF-GUARD] alt={alt:.1f}m >= {min_alt:.1f}m — liberando control RC")
+                break
+            time.sleep(1)
+        else:
+            logger.warning(f"[TAKEOFF-GUARD] Timeout ({timeout}s) — liberando control RC")
+        try:
+            self.rc.set_autonomous(False)
+            self.conn.suppress_probe(False)
+        except Exception:
+            pass
 
     def land(self):
-        return self.cmd.land()
+        try:
+            self.rc.set_autonomous(True)
+            self.conn.suppress_probe(True)
+        except Exception:
+            pass
+        try:
+            return self.cmd.land()
+        finally:
+            try:
+                self.rc.set_autonomous(False)
+                self.conn.suppress_probe(False)
+            except Exception:
+                pass
 
     def rtl(self):
-        return self.cmd.rtl()
+        try:
+            self.rc.set_autonomous(True)
+            self.conn.suppress_probe(True)
+        except Exception:
+            pass
+        try:
+            return self.cmd.rtl()
+        finally:
+            try:
+                self.rc.set_autonomous(False)
+                self.conn.suppress_probe(False)
+            except Exception:
+                pass
 
     def goto_position(self, lat, lon, alt):
         return self.cmd.goto_position(lat, lon, alt)
@@ -203,13 +318,21 @@ class MAVController:
         if not waypoints:
             raise ValueError("No waypoints provided")
 
-        # Pausar _read_loop para evitar race condition
-        with self.conn.pause_read():
+        try:
+            self.rc.set_autonomous(True)
+            self.conn.suppress_probe(True)
             return self._do_upload_mission(waypoints)
+        finally:
+            try:
+                self.rc.set_autonomous(False)
+                self.conn.suppress_probe(False)
+            except Exception:
+                pass
 
     def _do_upload_mission(self, waypoints):
         try:
             count = len(waypoints)
+            logger.info(f"📤 upload_mission: {count} waypoints")
             self.master.mav.mission_count_send(
                 self.master.target_system,
                 self.master.target_component,
@@ -217,13 +340,24 @@ class MAVController:
             )
 
             start_time = time.time()
+            retries = 0
+            max_retries = 3
 
-            while True:
-                # Esperar petición de misión (usando protected para evitar race con _read_loop)
-                msg = self.conn.recv_match_protected('MISSION_REQUEST_INT', timeout=5)
+            while retries < max_retries:
+                msg = self.conn.recv_match_protected('MISSION_REQUEST_INT', timeout=2)
                 if not msg:
-                    if time.time() - start_time > 10:
-                        raise TimeoutError("Timeout waiting for MISSION_REQUEST_INT")
+                    msg = self.conn.recv_match_protected('MISSION_REQUEST', timeout=6)
+                if not msg:
+                    elapsed = time.time() - start_time
+                    if elapsed > 20:
+                        raise TimeoutError(f"Timeout waiting for MISSION_REQUEST_INT after {elapsed:.0f}s")
+                    retries += 1
+                    logger.warning(f"MISSION_REQUEST_INT timeout (reintento {retries}/{max_retries})")
+                    self.master.mav.mission_count_send(
+                        self.master.target_system,
+                        self.master.target_component,
+                        count
+                    )
                     continue
 
                 req_seq = msg.seq
@@ -236,7 +370,8 @@ class MAVController:
                 lon = int(wp['lon'] * 1e7)
                 alt = float(wp.get('alt', 10.0))
 
-                # Enviar MISSION_ITEM_INT
+                logger.info(f"  WP {req_seq+1}/{count}: lat={wp['lat']:.6f} lon={wp['lon']:.6f} alt={alt}m")
+
                 self.master.mav.mission_item_int_send(
                     self.master.target_system,
                     self.master.target_component,
@@ -248,20 +383,62 @@ class MAVController:
                 )
 
                 if req_seq == count - 1:
-                    # Esperar ACK (protected contra race con _read_loop)
-                    ack = self.conn.recv_match_protected('MISSION_ACK', timeout=5)
+                    ack = self.conn.recv_match_protected('MISSION_ACK', timeout=10)
                     if ack:
+                        logger.info(f"✅ Misión subida ({count} waypoints)")
                         return True
                     else:
                         raise TimeoutError("No se recibió MISSION_ACK")
+
+            raise TimeoutError("MISSION_REQUEST_INT: max retries agotado")
 
         except Exception as e:
             logger.error(f"Error uploading mission: {e}")
             raise
 
     def start_mission(self):
-        with self.conn.pause_read():
-            return self._do_start_mission()
+        try:
+            self.rc.set_autonomous(True)
+            self.conn.suppress_probe(True)
+            result = self._do_start_mission()
+            if result:
+                t = threading.Thread(target=self._mission_climb_guard, daemon=True)
+                t.start()
+            else:
+                try:
+                    self.rc.set_autonomous(False)
+                    self.conn.suppress_probe(False)
+                except Exception:
+                    pass
+            return result
+        except Exception:
+            try:
+                self.rc.set_autonomous(False)
+                self.conn.suppress_probe(False)
+            except Exception:
+                pass
+            raise
+
+    def _mission_climb_guard(self):
+        """Mantiene autonomous=True durante toda la misión AUTO."""
+        timeout = 300
+        start = time.time()
+        logger.info("[MISSION-GUARD] Autonomous mode activo — duración máx 300s")
+        while time.time() - start < timeout:
+            mode = ""
+            if self.telemetry and self.telemetry.data:
+                mode = self.telemetry.data.get('mode', '')
+            if mode not in ('AUTO', 'GUIDED'):
+                logger.info(f"[MISSION-GUARD] Modo cambió a {mode} — liberando control RC")
+                break
+            time.sleep(2)
+        else:
+            logger.warning(f"[MISSION-GUARD] Timeout ({timeout}s) — liberando control RC")
+        try:
+            self.rc.set_autonomous(False)
+            self.conn.suppress_probe(False)
+        except Exception:
+            pass
 
     def _do_start_mission(self):
         try:

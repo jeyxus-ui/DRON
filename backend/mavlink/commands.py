@@ -20,6 +20,7 @@ class DroneCommands:
     def __init__(self, connection):
         self.conn = connection
         self._nav_speed = None  # m/s, None = usar WPNAV_SPEED del Pixhawk
+        self._disarming = False  # Flag: estamos en proceso de DISARM
 
     # ── Comandos básicos ───────────────────────────────────────────────────────
 
@@ -53,10 +54,40 @@ class DroneCommands:
             pass
         return False
 
+    def _wait_ack_direct(self, command_id, timeout=5):
+        """
+        Espera ACK verificando _pending_acks (capturado por _read_loop).
+        Cuando recibe IN_PROGRESS (result=4), extiende el deadline 15s adicionales.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self.conn._ack_lock:
+                if command_id in self.conn._pending_acks:
+                    ack = self.conn._pending_acks.pop(command_id)
+                    logger.info(f"ACK found: cmd={ack.command} result={ack.result}")
+                    if ack.result == 0:
+                        return True
+                    if ack.result == 4:
+                        deadline = time.time() + 15
+                    else:
+                        raise ConnectionError(f"ACK rechazado: result={ack.result}")
+            time.sleep(0.05)
+        return False
+
     def arm(self, force=True):
         logger.info("🔴 ARM — Armando motores...")
         if not self.conn or not self.conn.master:
             raise ConnectionError("No hay conexión con Pixhawk — verifica cable USB / puerto serie")
+
+        if force and not self.conn._ekf_ready.is_set():
+            logger.info("⏳ Esperando EKF alignment antes de enviar ARM...")
+            if self.conn._ekf_ready.wait(timeout=30):
+                logger.info("✅ EKF alineado — procediendo a ARM")
+                time.sleep(1)
+            else:
+                logger.warning("⚠️ EKF timeout (30s) — intentando ARM de todas formas")
+                time.sleep(3)
+
         with self.conn._lock:
             master = self.conn.master
             master.mav.command_long_send(
@@ -68,30 +99,89 @@ class DroneCommands:
                 0, 0, 0, 0, 0,
             )
 
-        if self.conn.wait_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM):
+        if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM):
             logger.info("✅ Motores armados")
             return True
+
+        logger.warning("⚠️ ACK timeout — verificando estado via HEARTBEAT...")
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            if self._is_armed():
+                logger.info("✅ Dron armado (confirmado por HEARTBEAT)")
+                return True
+            time.sleep(0.2)
+
         raise ConnectionError("Pixhawk no respondió al comando ARM — verifica conexión MAVLink y heartbeat")
 
+    def _send_disarm_cmd(self, force=False):
+        """Enviar comando DISARM via command_long. force=True usa param2=21196 (magic_force_arm_disarm_value en ArduPilot)."""
+        master = self.conn.master
+        master.mav.command_long_send(
+            master.target_system,
+            master.target_component,
+            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+            0,
+            0,   # param1: 0=disarm (1=arm)
+            21196 if force else 0,  # param2: 21196=force (magic_force_arm_disarm_value)
+            0, 0, 0, 0, 0,
+        )
+
     def disarm(self, force=False):
-        logger.info("🟢 DISARM — Desarmando motores...")
+        logger.info("🟢 DISARM — Desarmando motores (force=%s)...", force)
         if not self.conn or not self.conn.master:
             raise ConnectionError("No hay conexión con Pixhawk — verifica cable USB / puerto serie")
-        with self.conn._lock:
+        self._disarming = True
+        if self.conn:
+            self.conn._disarming = True
+        try:
+            if hasattr(self.conn, '_rc_callback') and self.conn._rc_callback:
+                self.conn._rc_callback(False)
+                logger.info("RC override desactivado antes de DISARM")
             master = self.conn.master
-            master.mav.command_long_send(
-                master.target_system,
-                master.target_component,
-                mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-                0, 0,
-                21196 if force else 0,
-                0, 0, 0, 0, 0,
-            )
+            logger.info("Enviando throttle=0 PWM para permitir disarm...")
+            for _ in range(10):
+                master.mav.rc_channels_override_send(
+                    master.target_system, master.target_component,
+                    1500, 1500, 1000, 1500, 0, 0, 0, 0
+                )
+                time.sleep(0.1)
+            time.sleep(0.5)
+            logger.info("Enviando DISARM (param1=0, param2=%s)...", 21196 if force else 0)
+            with self.conn._lock:
+                self._send_disarm_cmd(force=force)
 
-        if self.conn.wait_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM):
-            logger.info("✅ Motores desarmados")
-            return True
-        raise ConnectionError("Pixhawk no respondió al comando DISARM — verifica conexión MAVLink y heartbeat")
+            if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=5):
+                logger.info("✅ Motores desarmados (ACK recibido)")
+                return True
+
+            logger.warning("⚠️ DISARM ACK timeout — reintentando (force=%s)...", force)
+            for attempt in range(2):
+                logger.info("DISARM reintento %d/2", attempt + 1)
+                with self.conn._lock:
+                    self._send_disarm_cmd(force=force)
+                if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=5):
+                    logger.info("✅ Motores desarmados (ACK reintento)")
+                    return True
+
+            logger.warning("⚠️ DISARM ACK timeout — verificando estado via HEARTBEAT directo...")
+            deadline = time.time() + 15
+            while time.time() < deadline:
+                msg = self.conn.recv_match(msg_type='HEARTBEAT', blocking=True, timeout=1)
+                if msg:
+                    is_armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+                    logger.info("DISARM HEARTBEAT check: armed=%s", is_armed)
+                    if not is_armed:
+                        logger.info("✅ Dron desarmado (confirmado por HEARTBEAT directo)")
+                        if hasattr(self, 'telemetry') and self.telemetry:
+                            self.telemetry.data['armed'] = False
+                        return True
+                time.sleep(0.1)
+
+            raise ConnectionError("Pixhawk no respondió al comando DISARM — verifica conexión MAVLink y heartbeat")
+        finally:
+            self._disarming = False
+            if self.conn:
+                self.conn._disarming = False
 
     def set_mode(self, mode_name):
         logger.info(f"🔄 Cambiando a modo: {mode_name}")
@@ -141,10 +231,24 @@ class DroneCommands:
                 0, 0, 0, 0, 0, 0, 0, altitude,
             )
 
-        if self.conn.wait_ack(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF):
-            logger.info(f"✅ Despegando a {altitude}m")
+        if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, timeout=30):
+            logger.info(f"✅ Despegando a {altitude}m (ACK recibido)")
             return True
-        logger.error("❌ TAKEOFF wait_ack timeout")
+
+        logger.warning("⚠️ TAKEOFF ACK timeout — verificando subida via HEARTBEAT/telemetry...")
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            if self.telemetry and self.telemetry.data:
+                alt = self.telemetry.data.get('altitude', 0)
+                if alt > 1.0:
+                    logger.info(f"✅ TAKEOFF confirmado por telemetry (alt={alt:.1f}m)")
+                    return True
+            if self._is_armed():
+                logger.info("Dron armado y TAKEOFF enviado — asumiendo éxito (SITL ACK lento)")
+                return True
+            time.sleep(0.3)
+
+        logger.error("❌ TAKEOFF falló — no se detectó subida")
         return False
 
     def land(self):

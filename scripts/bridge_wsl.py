@@ -1,14 +1,29 @@
-"""Bridge TCP MAVLink (WSL arducopter) → UDP (Windows QGC/backend).
-Connects to arducopter TCP 5760, forwards to UDP 14550/14551 on Windows.
-Also forwards UDP commands back to TCP.
-Runs in WSL environment."""
-import socket, select, sys, time
+"""Bridge TCP MAVLink (WSL arducopter) ↔ UDP (Windows backend).
+Single UDP port (14551) for bidirectional communication.
+TCP stays inside WSL (reliable). UDP bridges to Windows (no port forwarding issues).
+
+Flow:
+  Bridge listens on UDP 14551
+  Backend (udpin:0.0.0.0:14551) sends heartbeat → bridge learns backend address
+  Bridge sends SITL telemetry to backend on 14551
+  Backend sends commands to bridge on 14551 → bridge forwards to SITL via TCP
+"""
+import socket, select, time
 
 TCP_HOST = "127.0.0.1"
 TCP_PORT = 5760
-WINDOWS_HOST = "172.28.240.1"
-QGC_PORT = 14550
-BACKEND_PORT = 14551
+UDP_PORT = 14551
+
+def get_windows_ip():
+    try:
+        import subprocess
+        r = subprocess.run(["ip", "route", "show", "default"], capture_output=True, text=True)
+        return r.stdout.split()[2]
+    except Exception:
+        return "172.28.240.1"
+
+WINDOWS_HOST = get_windows_ip()
+print(f"Windows IP: {WINDOWS_HOST}", flush=True)
 
 def main():
     while True:
@@ -19,42 +34,44 @@ def main():
             time.sleep(3)
 
 def run_bridge():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(60)
+    tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp_sock.settimeout(60)
     print(f"Connecting to arducopter at {TCP_HOST}:{TCP_PORT}...", flush=True)
-    sock.connect((TCP_HOST, TCP_PORT))
-    sock.setblocking(False)
+    tcp_sock.connect((TCP_HOST, TCP_PORT))
+    tcp_sock.setblocking(False)
     print("Connected to arducopter!", flush=True)
 
-    # UDP socket for forwarding to Windows
-    udp_out = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    udp.bind(("0.0.0.0", UDP_PORT))
+    udp.setblocking(False)
+    print(f"UDP bidirectional on 0.0.0.0:{UDP_PORT}", flush=True)
 
-    # UDP socket for receiving commands (bind on WSL side)
-    udp_in = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_in.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    udp_in.bind(("0.0.0.0", 14550))
-    udp_in.setblocking(False)
+    backend_addr = None
 
-    buf = b""
     while True:
-        r, _, e = select.select([sock, udp_in], [], [sock, udp_in], 1)
+        r, _, e = select.select([tcp_sock, udp], [], [tcp_sock, udp], 1)
         if e:
             print("Socket error", flush=True)
             break
         for s in r:
-            if s is sock:
+            if s is tcp_sock:
                 data = s.recv(4096)
                 if not data:
-                    print("TCP closed", flush=True)
+                    print("TCP closed by SITL", flush=True)
                     return
-                udp_out.sendto(data, (WINDOWS_HOST, QGC_PORT))
-                udp_out.sendto(data, (WINDOWS_HOST, BACKEND_PORT))
-            elif s is udp_in:
-                data, addr = s.recvfrom(4096)
+                if backend_addr:
+                    udp.sendto(data, backend_addr)
+            elif s is udp:
+                data, addr = udp.recvfrom(4096)
+                if backend_addr is None:
+                    print(f"Backend connected from {addr}", flush=True)
+                backend_addr = addr
                 try:
-                    sock.send(data)
-                except:
-                    pass
+                    tcp_sock.send(data)
+                except Exception as ex:
+                    print(f"TCP send error: {ex}", flush=True)
+                    return
         time.sleep(0.001)
 
 if __name__ == "__main__":

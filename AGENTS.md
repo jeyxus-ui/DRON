@@ -61,8 +61,12 @@ App Móvil (React Native) ←→ Backend (FastAPI) ←→ Pixhawk/SITL (MAVLink)
 ## Comandos Útiles
 
 ```bash
-# Backend
-pip install -r backend/requirements.txt
+# Backend (RECOMENDADO — incluye WebSocket ping/pong)
+python -m backend.run
+# O alternativa:
+MAVLINK_DEVICE='tcp:127.0.0.1:5760' python -m backend.run
+
+# Backend (uvicorn directo — NO configura ws_ping, usar solo para desarrollo)
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Mobile
@@ -90,6 +94,14 @@ docker-compose up --build -d
 | 14550 | UDP - QGroundControl / sim_drone |
 | 14551 | TCP - sim_drone → Backend |
 
+## WebSocket Ping/Pong
+
+El backend envía pings WebSocket cada 15s (configurable: `WS_PING_INTERVAL`).
+Si el cliente no responde en 10s (`WS_PING_TIMEOUT`), uvicorn cierra la conexión.
+
+**IMPORTANTE**: Solo funciona cuando se inicia con `python -m backend.run`.
+Si se usa `uvicorn backend.main:app` directamente, NO se configuran los pings.
+
 ## Documentación del Proyecto
 
 | Archivo | Contenido |
@@ -104,7 +116,10 @@ docker-compose up --build -d
 
 ## Estado Actual
 
-- **Última sesión:** Fusión de manuales técnicos (Diego Cheo + App Dron)
+- **Última sesión:** Fix 26-27: Heartbeat health check + reconexión robusta (App↔Backend↔Pixhawk)
+- **Fix 26 (Backend):** `last_heartbeat` tracking, `get_connection_health()`, auto-reconnect con backoff 2s→30s, detección de heartbeat stale
+- **Fix 27 (Mobile):** `connection_alert` handler, exponential backoff reconexión (1s→30s), delay demo mode (3 intentos), `connectionHealth`/`mavlinkOnline` en context
+- **Comando backend recomendado:** `python -m backend.run` (incluye ws_ping_interval=15s)
 - **Manual fusionado:** `documentacion/MANUAL_TECNICO_FUSIONADO.docx`
 - **Estilo de redacción:** Formal académico
 - **Archivos pendientes de revisión:** Secciones 5.4, 6.3-6.8, 7-16 del manual
