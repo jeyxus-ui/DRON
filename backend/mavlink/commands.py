@@ -25,31 +25,12 @@ class DroneCommands:
     # ── Comandos básicos ───────────────────────────────────────────────────────
 
     def _is_armed(self) -> bool:
-        """Verifica si el dron está armado desde telemetry o HEARTBEAT directo."""
+        """Verifica si el dron está armado usando la cache de telemetry.
+        NO lee del socket directamente para evitar competir con _read_loop."""
         try:
-            # 1. Cache de telemetry (rápido, sin bloqueo)
             telemetry_available = getattr(self, 'telemetry', None) and self.telemetry.data
             if telemetry_available:
-                armed = self.telemetry.data.get('armed', False)
-                if armed:
-                    return True
-                # Cache dice False — no confiamos ciegamente, verificamos con HEARTBEAT
-                if self.conn and self.conn.is_connected():
-                    msg = self.conn.recv_match_protected('HEARTBEAT', timeout=0.2)
-                    if msg:
-                        from pymavlink import mavutil as mu
-                        actual = bool(msg.base_mode & mu.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
-                        if actual:
-                            self.telemetry.data['armed'] = True
-                            return True
-                return False
-
-            # 2. Sin cache — HEARTBEAT directo
-            if self.conn and self.conn.is_connected():
-                msg = self.conn.recv_match_protected('HEARTBEAT', timeout=0.2)
-                if msg:
-                    from pymavlink import mavutil as mu
-                    return bool(msg.base_mode & mu.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+                return self.telemetry.data.get('armed', False)
         except Exception:
             pass
         return False
@@ -74,7 +55,7 @@ class DroneCommands:
             time.sleep(0.05)
         return False
 
-    def arm(self, force=True):
+    def arm(self, force=True, max_attempts=3):
         logger.info("🔴 ARM — Armando motores...")
         if not self.conn or not self.conn.master:
             raise ConnectionError("No hay conexión con Pixhawk — verifica cable USB / puerto serie")
@@ -88,30 +69,45 @@ class DroneCommands:
                 logger.warning("⚠️ EKF timeout (30s) — intentando ARM de todas formas")
                 time.sleep(3)
 
-        with self.conn._lock:
-            master = self.conn.master
-            master.mav.command_long_send(
-                master.target_system,
-                master.target_component,
-                mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-                0, 1,
-                21196 if force else 0,
-                0, 0, 0, 0, 0,
-            )
+        for attempt in range(max_attempts):
+            logger.info("ARM intento %d/%d", attempt + 1, max_attempts)
 
-        if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM):
-            logger.info("✅ Motores armados")
-            return True
+            with self.conn._lock:
+                master = self.conn.master
+                master.mav.command_long_send(
+                    master.target_system,
+                    master.target_component,
+                    mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                    0, 1,
+                    21196 if force else 0,
+                    0, 0, 0, 0, 0,
+                )
 
-        logger.warning("⚠️ ACK timeout — verificando estado via HEARTBEAT...")
-        deadline = time.time() + 15
-        while time.time() < deadline:
-            if self._is_armed():
-                logger.info("✅ Dron armado (confirmado por HEARTBEAT)")
+            if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM):
+                logger.info("✅ Motores armados (ACK intento %d)", attempt + 1)
                 return True
-            time.sleep(0.2)
 
-        raise ConnectionError("Pixhawk no respondió al comando ARM — verifica conexión MAVLink y heartbeat")
+            logger.warning("⚠️ ACK timeout intento %d — intentando recv_match directo...", attempt + 1)
+            ack = self.conn.recv_match(msg_type="COMMAND_ACK", blocking=True, timeout=3)
+            if ack and ack.command == mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM:
+                if ack.result == 0:
+                    logger.info("✅ Motores armados (recv_match directo)")
+                    return True
+                else:
+                    raise ConnectionError(f"ARM rechazado: result={ack.result}")
+
+            logger.warning("⚠️ Intento %d falló — verificando estado...", attempt + 1)
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                if self._is_armed():
+                    logger.info("✅ Dron armado (confirmado por HEARTBEAT)")
+                    return True
+                time.sleep(0.2)
+
+            if attempt < max_attempts - 1:
+                time.sleep(2)
+
+        raise ConnectionError("Pixhawk no respondió al comando ARM tras %d intentos — verifica conexión MAVLink y heartbeat" % max_attempts)
 
     def _send_disarm_cmd(self, force=False):
         """Enviar comando DISARM via command_long. force=True usa param2=21196 (magic_force_arm_disarm_value en ArduPilot)."""
@@ -142,7 +138,7 @@ class DroneCommands:
             for _ in range(10):
                 master.mav.rc_channels_override_send(
                     master.target_system, master.target_component,
-                    1500, 1500, 1000, 1500, 0, 0, 0, 0
+                    1500, 1500, 1000, 1500, 65535, 65535, 65535, 65535
                 )
                 time.sleep(0.1)
             time.sleep(0.5)
@@ -163,19 +159,16 @@ class DroneCommands:
                     logger.info("✅ Motores desarmados (ACK reintento)")
                     return True
 
-            logger.warning("⚠️ DISARM ACK timeout — verificando estado via HEARTBEAT directo...")
+            logger.warning("⚠️ DISARM ACK timeout — verificando estado via telemetry...")
             deadline = time.time() + 15
             while time.time() < deadline:
-                msg = self.conn.recv_match(msg_type='HEARTBEAT', blocking=True, timeout=1)
-                if msg:
-                    is_armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
-                    logger.info("DISARM HEARTBEAT check: armed=%s", is_armed)
+                if self.telemetry and self.telemetry.data:
+                    is_armed = self.telemetry.data.get('armed', False)
+                    logger.info("DISARM telemetry check: armed=%s", is_armed)
                     if not is_armed:
-                        logger.info("✅ Dron desarmado (confirmado por HEARTBEAT directo)")
-                        if hasattr(self, 'telemetry') and self.telemetry:
-                            self.telemetry.data['armed'] = False
+                        logger.info("✅ Dron desarmado (confirmado por telemetry)")
                         return True
-                time.sleep(0.1)
+                time.sleep(0.3)
 
             raise ConnectionError("Pixhawk no respondió al comando DISARM — verifica conexión MAVLink y heartbeat")
         finally:
@@ -183,7 +176,7 @@ class DroneCommands:
             if self.conn:
                 self.conn._disarming = False
 
-    def set_mode(self, mode_name):
+    def set_mode(self, mode_name, verify=True, max_attempts=3):
         logger.info(f"🔄 Cambiando a modo: {mode_name}")
         with self.conn._lock:
             master = self.conn.master
@@ -195,8 +188,26 @@ class DroneCommands:
             mode_id = master.mode_mapping()[mode_name]
             master.set_mode(mode_id)
 
-        time.sleep(0.5)
-        logger.info(f"✅ Modo enviado: {mode_name}")
+        if not verify:
+            logger.info(f"✅ Modo enviado: {mode_name}")
+            return True
+
+        for attempt in range(max_attempts):
+            time.sleep(1)
+            current = self.get_current_mode()
+            if current == mode_name:
+                logger.info(f"✅ Modo cambiado a {mode_name}")
+                return True
+            logger.warning(f"⚠️ Modo aún {current}, reenviando ({attempt+1}/{max_attempts})...")
+            with self.conn._lock:
+                master = self.conn.master
+                if master:
+                    master.set_mode(mode_id)
+
+        current = self.get_current_mode()
+        if current == mode_name:
+            return True
+        logger.warning(f"⚠️ Modo no verificado (actual: {current}) — continuando de todas formas")
         return True
 
     def takeoff(self, altitude):
@@ -264,9 +275,17 @@ class DroneCommands:
                 0, 0, 0, 0, 0, 0, 0, 0,
             )
 
-        if self.conn.wait_ack(mavutil.mavlink.MAV_CMD_NAV_LAND):
+        if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_NAV_LAND):
             logger.info("✅ Aterrizando")
             return True
+
+        logger.warning("⚠️ LAND ACK timeout — verificando recv_match directo...")
+        ack = self.conn.recv_match(msg_type="COMMAND_ACK", blocking=True, timeout=3)
+        if ack and ack.command == mavutil.mavlink.MAV_CMD_NAV_LAND:
+            if ack.result == 0:
+                logger.info("✅ Aterrizando (recv_match directo)")
+                return True
+
         logger.error("❌ Comando de aterrizaje rechazado")
         return False
 
@@ -388,10 +407,13 @@ class DroneCommands:
     # ── Utilidades ─────────────────────────────────────────────────────────────
 
     def get_current_mode(self):
-        """
-        Obtener modo actual del dron.
-        CORRECCIÓN: usa self.conn.recv_match que sí existe.
-        """
+        try:
+            if hasattr(self, 'telemetry') and self.telemetry and self.telemetry.data:
+                mode = self.telemetry.data.get('mode')
+                if mode and mode != 'UNKNOWN':
+                    return mode
+        except Exception:
+            pass
         msg = self.conn.recv_match(msg_type="HEARTBEAT", blocking=True, timeout=2)
         if msg:
             return mavutil.mode_string_v10(msg)

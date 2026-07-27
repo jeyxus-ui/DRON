@@ -10,8 +10,8 @@ import sys
 
 HOST = os.getenv('API_HOST', '0.0.0.0')
 PORT = int(os.getenv('API_PORT', '8000'))
-WS_PING_INTERVAL = int(os.getenv('WS_PING_INTERVAL', '15'))
-WS_PING_TIMEOUT = int(os.getenv('WS_PING_TIMEOUT', '10'))
+WS_PING_INTERVAL = int(os.getenv('WS_PING_INTERVAL', '30'))
+WS_PING_TIMEOUT = int(os.getenv('WS_PING_TIMEOUT', '25'))
 
 if __name__ == "__main__":
     uvicorn.run(

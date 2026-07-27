@@ -55,9 +55,9 @@ class MAVLinkConnection:
         self._last_ack_time: float = 0.0         # last COMMAND_ACK or meaningful response received
         self._probe_fail_count: int = 0          # consecutive probe failures
         self._probe_lock = threading.Lock()
-        PROBE_INTERVAL = 15.0                    # send probe every N seconds
-        PROBE_TIMEOUT = 8.0                      # wait this long for response
-        PROBE_MAX_FAILURES = 3                   # consecutive failures → mark dead
+        PROBE_INTERVAL = 20.0                    # send probe every N seconds
+        PROBE_TIMEOUT = 10.0                     # wait this long for response
+        PROBE_MAX_FAILURES = 5                   # consecutive failures → mark dead (5 fallos = 100s+ para reconectar)
         self.PROBE_INTERVAL = PROBE_INTERVAL
         self.PROBE_TIMEOUT = PROBE_TIMEOUT
         self.PROBE_MAX_FAILURES = PROBE_MAX_FAILURES
@@ -280,9 +280,13 @@ class MAVLinkConnection:
             return time.time() - self.last_heartbeat
 
     def update_msg_time(self):
-        """Llamar desde _read_loop cuando se recibe CUALQUIER mensaje MAVLink."""
+        """Llamar desde _read_loop cuando se recibe CUALQUIER mensaje MAVLink.
+        Resetea probe_fail_count — si hay tráfico, la conexión está viva."""
         with self._msg_lock:
             self.last_msg_time = time.time()
+        with self._probe_lock:
+            if self._probe_fail_count > 0:
+                self._probe_fail_count = 0
 
     def msg_age(self) -> float:
         """Segundos desde el último mensaje de cualquier tipo. inf si nunca se recibió."""
@@ -294,21 +298,21 @@ class MAVLinkConnection:
     def is_socket_alive(self) -> bool:
         """Verificar si la conexión está viva.
         Usa select() + MSG_PEEK como verificación principal.
-        Si hay mensajes fluyendo recientemente (<5s), se considera viva aunque select falle."""
+        Si hay mensajes fluyendo recientemente (<10s), se considera viva aunque select falle."""
         if not self.master:
             return False
         try:
             sock = getattr(self.master, 'socket', None)
             if sock is None:
-                return self.msg_age() < 5.0
+                return self.msg_age() < 10.0
             readable, _, _ = select.select([sock], [], [], 0)
             if readable:
                 data = sock.recv(1, socket.MSG_PEEK)
                 if not data:
-                    return False
+                    return self.msg_age() < 10.0
             return True
         except (OSError, ValueError, AttributeError):
-            return self.msg_age() < 5.0
+            return self.msg_age() < 10.0
 
     def mark_dead(self, reason: str = "unknown"):
         """Marcar conexión como muerta y activar reconexión automática.
@@ -364,9 +368,20 @@ class MAVLinkConnection:
             return False
 
     def run_probe_check(self):
-        """Called by auto-reconnect thread periodically. Detects zombie TCP connections."""
+        """Called by auto-reconnect thread periodically. Detects zombie TCP connections.
+        Safety net: if ANY messages are flowing (msg_age < 5s), don't count as failure."""
         if not self.is_connected() or self._reconnecting.is_set() or self._needs_reconnect.is_set():
             return
+
+        # Safety net: si hay tráfico reciente, la conexión está viva
+        # (el probe ACK puede haberse perdido entre otros mensajes)
+        if self.msg_age() < 5.0:
+            with self._probe_lock:
+                if self._probe_fail_count > 0:
+                    print(f"[PROBE] msgs flowing — resetting fail count", flush=True)
+                self._probe_fail_count = 0
+            return
+
         alive = self._send_probe()
         with self._probe_lock:
             if not alive:

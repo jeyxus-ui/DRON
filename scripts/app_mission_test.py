@@ -25,7 +25,7 @@ async def run():
     print('  RUTA DESDE APP (REST + WebSocket telemetry)')
     print('='*65)
 
-    async with websockets.connect(WS, ping_interval=20, ping_timeout=10) as ws:
+    async with websockets.connect(WS, ping_interval=None, ping_timeout=None) as ws:
         await asyncio.sleep(2)
 
         print('\n--- GUIDED ---')
@@ -101,30 +101,55 @@ async def run():
 
         print('\n--- Monitoreando vuelo (180s) ---')
         wp_reached = set()
+        home_idx = 3
         start = time.time()
+        last_print = 0
+        ws_ok = True
         while time.time() - start < 180:
-            try:
-                raw = await asyncio.wait_for(ws.recv(), timeout=3)
-            except asyncio.TimeoutError:
-                continue
-            data = json.loads(raw)
-            if data.get("type") != "telemetry":
-                continue
-            t = data.get("data", {})
+            if ws_ok:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=3)
+                except asyncio.TimeoutError:
+                    continue
+                except Exception as e:
+                    print(f'  WS error: {e} — fallback a REST polling')
+                    ws_ok = False
+                    continue
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if data.get("type") != "telemetry":
+                    continue
+                t = data.get("data", {})
+            else:
+                try:
+                    t = api('GET', '/api/telemetry', timeout=5)
+                except Exception:
+                    time.sleep(2)
+                    continue
+                time.sleep(1)
             alt = round(t.get('altitude', 584) - 584, 1)
             lat = t.get('latitude', 0)
             lon = t.get('longitude', 0)
             mode = t.get('mode')
             elapsed = round(time.time() - start, 0)
 
+            if elapsed - last_print < 2 and len(wp_reached) == 0:
+                continue
+            last_print = elapsed
+
             for i, wp in enumerate(WAYPOINTS):
-                if i not in wp_reached:
-                    dlat = abs(lat - wp['latitude']) * 111000
-                    dlon = abs(lon - wp['longitude']) * 111000
-                    dist = round((dlat**2 + dlon**2)**0.5, 1)
-                    if dist < 10:
-                        wp_reached.add(i)
-                        print(f'  [{elapsed:3.0f}s] >>> WP{i+1} ALCANZADO!')
+                if i in wp_reached:
+                    continue
+                dlat = abs(lat - wp['latitude']) * 111000
+                dlon = abs(lon - wp['longitude']) * 111000
+                dist = round((dlat**2 + dlon**2)**0.5, 1)
+                if dist < 17:
+                    if i == home_idx and len(wp_reached) < 2:
+                        continue
+                    wp_reached.add(i)
+                    print(f'  [{elapsed:3.0f}s] >>> WP{i+1} ALCANZADO! (dist={dist:.0f}m)')
 
             print(f'  [{elapsed:3.0f}s] alt={alt:6.1f}m mode={mode:10s} wp={len(wp_reached)}/4')
 

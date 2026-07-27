@@ -57,7 +57,6 @@ class MAVController:
             return
 
         self.conn = MAVLinkConnection(device, baud)
-        # Habilitar reconexión automática en segundo plano
         try:
             self.conn.start_auto_reconnect()
         except Exception:
@@ -70,6 +69,7 @@ class MAVController:
         self.rc.start()
         self.conn._rc_callback = self.rc.set_armed
         self.conn._post_reconnect = self.telemetry._request_streams
+        threading.Thread(target=self._set_initial_params, daemon=True).start()
         logger.info("Telemetry + RC Override Controller iniciados")
 
     @property
@@ -77,23 +77,29 @@ class MAVController:
         return self.conn.master if self.conn else None
 
     def _set_initial_params(self):
-        """Set critical params on connection (ARMING_CHECK=0, DISARM_DELAY=0)."""
+        """Set critical params on connection (ARMING_CHECK=0, DISARM_DELAY=0). Runs as background thread."""
+        time.sleep(3)
         try:
             m = self.conn.master
             if not m:
                 return
-            import time as _t
             params = [
                 (b'ARMING_CHECK', 0),
                 (b'DISARM_DELAY', 0),
             ]
             for name, val in params:
-                m.mav.param_set_send(
-                    m.target_system, m.target_component,
-                    name, float(val), mavutil.mavlink.MAV_PARAM_TYPE_REAL32
-                )
-                _t.sleep(0.3)
-            logger.info("SITL params set: ARMING_CHECK=0, DISARM_DELAY=0")
+                try:
+                    with self.conn._lock:
+                        m.mav.param_set_send(
+                            m.target_system, m.target_component,
+                            name, float(val), mavutil.mavlink.MAV_PARAM_TYPE_REAL32
+                        )
+                    logger.info(f"Param set: {name.decode()}={val}")
+                    time.sleep(1.5)
+                except Exception as e:
+                    logger.warning(f"Failed to set param {name}: {e}")
+                    time.sleep(2)
+            logger.info("Initial params set: ARMING_CHECK=0, DISARM_DELAY=0")
         except Exception as e:
             logger.warning(f"Failed to set initial params: {e}")
 
@@ -151,9 +157,12 @@ class MAVController:
             pass
         try:
             result = self.cmd.takeoff(altitude)
-            if result:
-                t = threading.Thread(target=self._takeoff_climb_guard, args=(altitude,), daemon=True)
-                t.start()
+            if not result:
+                try:
+                    self.rc.set_autonomous(False)
+                    self.conn.suppress_probe(False)
+                except Exception:
+                    pass
             else:
                 try:
                     self.rc.set_autonomous(False)
@@ -168,28 +177,6 @@ class MAVController:
             except Exception:
                 pass
             raise
-
-    def _takeoff_climb_guard(self, target_alt):
-        """Mantiene autonomous=True hasta que el dron suba significativamente."""
-        min_alt = max(target_alt * 0.25, 3.0)
-        timeout = 60
-        start = time.time()
-        logger.info(f"[TAKEOFF-GUARD] Esperando alt >= {min_alt:.1f}m (timeout {timeout}s)")
-        while time.time() - start < timeout:
-            alt = 0
-            if self.telemetry and self.telemetry.data:
-                alt = self.telemetry.data.get('altitude', 0)
-            if alt >= min_alt:
-                logger.info(f"[TAKEOFF-GUARD] alt={alt:.1f}m >= {min_alt:.1f}m — liberando control RC")
-                break
-            time.sleep(1)
-        else:
-            logger.warning(f"[TAKEOFF-GUARD] Timeout ({timeout}s) — liberando control RC")
-        try:
-            self.rc.set_autonomous(False)
-            self.conn.suppress_probe(False)
-        except Exception:
-            pass
 
     def land(self):
         try:
@@ -321,13 +308,15 @@ class MAVController:
         try:
             self.rc.set_autonomous(True)
             self.conn.suppress_probe(True)
-            return self._do_upload_mission(waypoints)
-        finally:
+            result = self._do_upload_mission(waypoints)
+            return result
+        except Exception:
             try:
                 self.rc.set_autonomous(False)
                 self.conn.suppress_probe(False)
             except Exception:
                 pass
+            raise
 
     def _do_upload_mission(self, waypoints):
         try:
@@ -420,20 +409,20 @@ class MAVController:
             raise
 
     def _mission_climb_guard(self):
-        """Mantiene autonomous=True durante toda la misión AUTO."""
+        """Mantiene RC override en modo 'no override' durante toda la misión AUTO."""
         timeout = 300
         start = time.time()
-        logger.info("[MISSION-GUARD] Autonomous mode activo — duración máx 300s")
+        logger.info("[MISSION-GUARD] RC override en modo 65535 (no override) durante AUTO — duración máx 300s")
         while time.time() - start < timeout:
             mode = ""
             if self.telemetry and self.telemetry.data:
                 mode = self.telemetry.data.get('mode', '')
             if mode not in ('AUTO', 'GUIDED'):
-                logger.info(f"[MISSION-GUARD] Modo cambió a {mode} — liberando control RC")
+                logger.info(f"[MISSION-GUARD] Modo cambió a {mode} — restaurando control RC")
                 break
             time.sleep(2)
         else:
-            logger.warning(f"[MISSION-GUARD] Timeout ({timeout}s) — liberando control RC")
+            logger.warning(f"[MISSION-GUARD] Timeout ({timeout}s) — restaurando control RC")
         try:
             self.rc.set_autonomous(False)
             self.conn.suppress_probe(False)

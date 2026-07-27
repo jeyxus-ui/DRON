@@ -90,7 +90,10 @@ class RCOverrideController:
                     time.sleep(0.5)
                     continue
 
-                # Enviar valores neutros durante operaciones autónomas (TAKEOFF, misión, etc.)
+                # Enviar 65535 en todos los canales durante operaciones autónomas
+                # 65535 = "no override" según MAVLink/ArduPilot — el autopilot
+                # controla todo internamente sin interferencia RC.
+                # Mensajes siguen fluyendo para evitar failsafe por RC loss.
                 if self._autonomous:
                     master = self.conn.master
                     if master is not None:
@@ -98,11 +101,8 @@ class RCOverrideController:
                             master.mav.rc_channels_override_send(
                                 master.target_system,
                                 master.target_component,
-                                self.PWM_CENTER,
-                                self.PWM_CENTER,
-                                self.PWM_CENTER,
-                                self.PWM_CENTER,
-                                0, 0, 0, 0,
+                                65535, 65535, 65535, 65535,
+                                65535, 65535, 65535, 65535,
                             )
                         except Exception:
                             pass
@@ -184,7 +184,7 @@ class RCOverrideController:
                             ch_pitch,    # CH2 Pitch
                             ch_throttle, # CH3 Throttle
                             ch_yaw,      # CH4 Yaw
-                            0, 0, 0, 0   # CH5-8 sin usar
+                            65535, 65535, 65535, 65535   # CH5-8 sin usar (65535=no cambio)
                         )
                         if self._send_failures > 0:
                             logger.info('RC override reconectado tras %d fallos', self._send_failures)
@@ -209,14 +209,14 @@ class RCOverrideController:
                 time.sleep(0.5)
 
     def _release_control(self):
-        """Libera el control RC (todos los canales a 0 = release)."""
+        """Libera el control RC (todos los canales a 65535 = no cambio)."""
         try:
             master = self.conn.master
             if master:
                 master.mav.rc_channels_override_send(
                     master.target_system,
                     master.target_component,
-                    0, 0, 0, 0, 0, 0, 0, 0
+                    65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535
                 )
             logger.info("Control RC liberado")
         except Exception as e:

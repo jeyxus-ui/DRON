@@ -84,24 +84,20 @@ class DroneTelemetry:
             target_sys = master.target_system
             comps = [master.target_component] if master.target_component != 0 else [1, 0]
             STREAMS = [
-                (mavutil.mavlink.MAV_DATA_STREAM_RAW_SENSORS, 10),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTENDED_STATUS, 10),
-                (mavutil.mavlink.MAV_DATA_STREAM_RC_CHANNELS, 5),
-                (mavutil.mavlink.MAV_DATA_STREAM_POSITION, 10),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA1, 10),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA2, 10),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA3, 5),
+                (mavutil.mavlink.MAV_DATA_STREAM_RAW_SENSORS, 2),
+                (mavutil.mavlink.MAV_DATA_STREAM_EXTENDED_STATUS, 2),
+                (mavutil.mavlink.MAV_DATA_STREAM_RC_CHANNELS, 2),
+                (mavutil.mavlink.MAV_DATA_STREAM_POSITION, 5),
+                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA1, 5),
+                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA2, 2),
+                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA3, 1),
             ]
             for comp in comps:
                 for stream_id, rate_hz in STREAMS:
                     master.mav.request_data_stream_send(
                         target_sys, comp, stream_id, rate_hz, 1,
                     )
-                master.mav.request_data_stream_send(
-                    target_sys, comp,
-                    mavutil.mavlink.MAV_DATA_STREAM_ALL, 10, 1,
-                )
-            logger.info(f"✅ Streams solicitados al Pixhawk @ 10 Hz (comps={comps})")
+            logger.info(f"✅ Streams solicitados al Pixhawk (comps={comps}, max=5 Hz)")
         except Exception as e:
             logger.error(f"❌ Error solicitando streams: {e}")
 
