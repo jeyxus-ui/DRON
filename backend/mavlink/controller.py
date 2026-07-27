@@ -77,8 +77,14 @@ class MAVController:
         return self.conn.master if self.conn else None
 
     def _set_initial_params(self):
-        """Set critical params on connection (ARMING_CHECK=0, DISARM_DELAY=0). Runs as background thread."""
+        """Set critical params on SITL connection (ARMING_CHECK=0, DISARM_DELAY=0).
+        Runs as background thread. ONLY for SITL (TCP/UDP) — never on real hardware."""
         time.sleep(3)
+        device = getattr(self.conn, 'device', '') if self.conn else ''
+        is_sitl = isinstance(device, str) and ':' in device and not device.startswith('/')
+        if not is_sitl:
+            logger.info("Skipping _set_initial_params: real hardware detected (%s)", device)
+            return
         try:
             m = self.conn.master
             if not m:
@@ -309,6 +315,9 @@ class MAVController:
             self.rc.set_autonomous(True)
             self.conn.suppress_probe(True)
             result = self._do_upload_mission(waypoints)
+            if result:
+                self.rc.set_autonomous(False)
+                self.conn.suppress_probe(False)
             return result
         except Exception:
             try:
@@ -409,37 +418,44 @@ class MAVController:
             raise
 
     def _mission_climb_guard(self):
-        """Mantiene RC override en modo 'no override' durante toda la misión AUTO."""
-        timeout = 300
+        """Mantiene RC override en modo 'no override' durante toda la misión AUTO.
+        Solo restaura control RC cuando el modo cambia fuera de AUTO/GUIDED
+        (misión completada, RTL por pilotaje, etc.) o cuando el dron aterriza."""
         start = time.time()
-        logger.info("[MISSION-GUARD] RC override en modo 65535 (no override) durante AUTO — duración máx 300s")
-        while time.time() - start < timeout:
+        logger.info("[MISSION-GUARD] RC override en modo 65535 (no override) durante AUTO — esperando fin de misión")
+        while True:
+            time.sleep(2)
             mode = ""
             if self.telemetry and self.telemetry.data:
                 mode = self.telemetry.data.get('mode', '')
+                armed = self.telemetry.data.get('armed', False)
+            else:
+                armed = False
+            if not armed:
+                logger.info("[MISSION-GUARD] Dron desarmado — restaurando control RC")
+                break
             if mode not in ('AUTO', 'GUIDED'):
                 logger.info(f"[MISSION-GUARD] Modo cambió a {mode} — restaurando control RC")
                 break
-            time.sleep(2)
-        else:
-            logger.warning(f"[MISSION-GUARD] Timeout ({timeout}s) — restaurando control RC")
+            elapsed = time.time() - start
+            if int(elapsed) % 60 == 0 and elapsed > 0:
+                logger.info("[MISSION-GUARD] Misión en curso (%.0fs) — manteniendo override autónomo", elapsed)
         try:
             self.rc.set_autonomous(False)
             self.conn.suppress_probe(False)
+            logger.info("[MISSION-GUARD] Control RC restaurado")
         except Exception:
             pass
 
     def _do_start_mission(self):
         try:
-            # Establecer índice de misión en 0 y cambiar a AUTO
             self.master.mav.mission_set_current_send(
                 self.master.target_system,
                 self.master.target_component,
                 0
             )
             time.sleep(0.5)
-            self.set_mode('AUTO')
-            return True
+            return self.set_mode('AUTO')
         except Exception as e:
             logger.error(f"Error starting mission: {e}")
             raise

@@ -207,8 +207,8 @@ class DroneCommands:
         current = self.get_current_mode()
         if current == mode_name:
             return True
-        logger.warning(f"⚠️ Modo no verificado (actual: {current}) — continuando de todas formas")
-        return True
+        logger.warning(f"⚠️ Modo no verificado (actual: {current}) — no se confirmó cambio a {mode_name}")
+        return False
 
     def takeoff(self, altitude):
         logger.info(f"🚁 TAKEOFF — Despegando a {altitude}m")
