@@ -233,8 +233,8 @@ async def disarm_drone(request: ArmRequest = None):
 async def takeoff(request: TakeoffRequest):
     try:
         ctrl = get_mav_controller()
-        if not (1 <= request.altitude <= 100):
-            return {"success": False, "message": "Altitud debe estar entre 1 y 100 metros"}
+        if not (1 <= request.altitude <= 10):
+            return {"success": False, "message": "Altitud debe estar entre 1 y 10 metros"}
         success = await asyncio.to_thread(ctrl.takeoff, request.altitude)
         return {"success": success, "message": f"Despegando a {request.altitude}m" if success else "Error despegando"}
     except Exception as e:

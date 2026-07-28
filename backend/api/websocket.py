@@ -267,8 +267,8 @@ async def process_command(command: dict, mav_controller) -> dict:
 
         elif cmd_type == "TAKEOFF":
             altitude = params.get("altitude", 10)
-            if not (1 <= altitude <= 100):
-                return {"success": False, "message": "Altitud debe estar entre 1 y 100 metros"}
+            if not (1 <= altitude <= 10):
+                return {"success": False, "message": "Altitud debe estar entre 1 y 10 metros"}
             success  = await asyncio.to_thread(mav_controller.takeoff, altitude)
             return {"success": success, "message": f"Despegando a {altitude}m" if success else "Error despegando"}
 
