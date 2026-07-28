@@ -13,4 +13,3 @@ def save_telemetry(data):
             logger.info("Telemetry saved to database")
     except Exception as e:
         logger.error(f"Error saving telemetry: {e}")
-        raise

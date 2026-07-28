@@ -60,11 +60,9 @@ def detect_mavlink_device() -> str:
         if not os.path.exists(MAVLINK_DEVICE):
             logger.warning(
                 f"MAVLINK_DEVICE='{MAVLINK_DEVICE}' no existe en el sistema. "
-                f"¿Está conectado el Pixhawk? ¿Tienes permisos en el grupo 'dialout'?"
+                f"Fallback a SIM. ¿Está conectado el Pixhawk?"
             )
-            # NO hacer fallback silencioso — el usuario configuró esto explícitamente
-            # Retornar el valor de todas formas y dejar que mavlink_connection falle con error claro
-            return MAVLINK_DEVICE
+            return 'SIM'
 
         logger.info(f"Usando dispositivo MAVLink configurado: {MAVLINK_DEVICE} @ {MAVLINK_BAUD} baud")
         return MAVLINK_DEVICE

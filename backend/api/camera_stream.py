@@ -30,7 +30,7 @@ def _build_fallback_frame() -> bytes:
 _FALLBACK_FRAME: bytes = _build_fallback_frame()
 
 # Dispositivos de video a probar
-VIDEO_DEVICES = [4, 2, 0, 1, 3, 5]
+VIDEO_DEVICES = [0, 1, 2, 3]
 
 # Clientes WebSocket conectados
 _ws_clients: set = set()
@@ -74,12 +74,15 @@ class RealSenseCamera:
 
     def stop(self):
         self.running = False
+        if hasattr(self, 'capture_thread') and self.capture_thread.is_alive():
+            self.capture_thread.join(timeout=2.0)
         if self.cap:
             self.cap.release()
             self.cap = None
         logger.info("🛑 Cámara detenida")
 
     def _capture_loop(self):
+        frame_interval = 1.0 / max(1, self._fps)
         while self.running:
             if self.cap is None:
                 break
@@ -90,9 +93,13 @@ class RealSenseCamera:
                 _check_auto_avoid(markers)
                 with self.lock:
                     self.current_frame = overlay
+                elapsed = time.time() - (getattr(self, '_last_frame_time', 0))
+                sleep_time = frame_interval - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                self._last_frame_time = time.time()
             else:
                 logger.warning("⚠️  Frame no disponible, reintentando...")
-                import time
                 time.sleep(0.1)
 
     def get_frame(self):
@@ -198,12 +205,13 @@ async def camera_websocket(websocket: WebSocket):
     await websocket.accept()
     _ws_clients.add(websocket)
     logger.info(f"📡 Cliente WS conectado. Total: {len(_ws_clients)}")
+    loop = asyncio.get_event_loop()
     try:
         while True:
-            b64 = camera.get_frame_as_base64()
+            b64 = await loop.run_in_executor(None, camera.get_frame_as_base64)
             if b64:
                 await websocket.send_text(b64)
-            await asyncio.sleep(1 / 25)  # 25 fps
+            await asyncio.sleep(1 / 25)
     except WebSocketDisconnect:
         logger.info("📡 Cliente WS desconectado")
     except Exception as e:
@@ -326,7 +334,8 @@ async def get_snapshot():
 async def start_camera(width: int = 640, height: int = 480, fps: int = 30):
     try:
         if not camera.running:
-            camera.start(width, height, fps)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, camera.start, width, height, fps)
             return {"success": True, "message": f"Cámara iniciada en /dev/video{camera._device_index}"}
         return {"success": False, "message": "Cámara ya está corriendo"}
     except Exception as e:
@@ -338,7 +347,8 @@ async def start_camera(width: int = 640, height: int = 480, fps: int = 30):
 async def stop_camera():
     try:
         if camera.running:
-            camera.stop()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, camera.stop)
             return {"success": True, "message": "Cámara detenida"}
         return {"success": False, "message": "Cámara no está corriendo"}
     except Exception as e:

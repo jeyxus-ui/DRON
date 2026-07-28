@@ -24,10 +24,10 @@ def main():
         sys.exit(2)
 
     try:
-        baud = int(os.getenv('MAVLINK_BAUD', os.getenv('BAUD', '57600')))
+        baud = int(os.getenv('MAVLINK_BAUD', os.getenv('BAUD', '115200')))
     except Exception:
-        logger.warning('Invalid MAVLINK_BAUD, falling back to 57600')
-        baud = 57600
+        logger.warning('Invalid MAVLINK_BAUD, falling back to 115200')
+        baud = 115200
 
     logger.info(f"Initializing MAV controller on device={device} baud={baud}")
 
@@ -58,7 +58,8 @@ def main():
         import uvicorn
 
         logger.info('Starting uvicorn (lifespan=off) backend.main:app on 0.0.0.0:8000')
-        uvicorn.run('backend.main:app', host='0.0.0.0', port=8000, lifespan='off')
+        uvicorn.run('backend.main:app', host='0.0.0.0', port=8000, lifespan='off',
+                     ws_ping_interval=30, ws_ping_timeout=25)
     except Exception as e:
         logger.exception(f"Failed to start uvicorn: {e}")
         sys.exit(4)

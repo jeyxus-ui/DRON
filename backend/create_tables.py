@@ -1,5 +1,5 @@
-from db.database import engine
-from db.models import Base
+from backend.db.database import engine
+from backend.db.models import Base
 
 
 def create_tables():

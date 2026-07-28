@@ -44,7 +44,14 @@ class ObstacleAvoidance:
         mtf = sensor_data.get('mtf01', {})
         mtf_dist = mtf.get('distance_m')
         if mtf_dist is not None and mtf_dist < self.safety_distance * 2:
-            return (current_yaw + 90) % 360
+            right = (current_yaw + 90) % 360
+            left = (current_yaw - 90) % 360
+            lidar_right = sensor_data.get('lidar', {}).get('closest_angle')
+            if lidar_right is not None:
+                diff_right = abs((lidar_right - right + 180) % 360 - 180)
+                diff_left = abs((lidar_right - left + 180) % 360 - 180)
+                return right if diff_right > diff_left else left
+            return right
 
         # 4. Default: keep current heading
         return current_yaw
@@ -78,7 +85,7 @@ class ObstacleAvoidance:
                     'reason': f'obstacle at {min_dist:.2f}m',
                     'distance': min_dist,
                 }
-            return {'action': 'NONE', 'reason': 'brake cooldown'}
+            return {'action': 'BRAKE_DELAYED', 'reason': 'brake cooldown', 'distance': min_dist}
 
         # ── CAUTION: obstacle within safety distance, compute evasion heading ──
         if min_dist <= self.safety_distance:

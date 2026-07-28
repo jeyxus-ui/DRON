@@ -99,15 +99,12 @@ class YDLidarX4(BaseSensor):
 
     def stop(self):
         self._running = False
-        ser = self._serial
-        if ser:
-                s = self._serial
-                if s:
-                    try:
-                        s.close()
-                    except Exception:
-                        pass
-                self._serial = None
+        if self._serial:
+            try:
+                self._serial.close()
+            except Exception:
+                pass
+            self._serial = None
         logger.info('[YDLIDAR] Detenido')
 
     def read(self) -> LidarScan:
@@ -160,18 +157,26 @@ class YDLidarX4(BaseSensor):
                 return LidarScan(timestamp=t, valid=False)
             raw = self._serial.read(2000)
             points = []
-            for i in range(0, len(raw) - 4, 5):
-                if i + 4 >= len(raw):
-                    break
-                angle = (raw[i] | (raw[i+1] << 8)) / 64.0
-                dist_mm = raw[i+2] | (raw[i+3] << 8)
-                quality = raw[i+4]
-                if dist_mm > 0:
-                    points.append(LidarPoint(
-                        angle_deg=angle,
-                        distance_m=dist_mm / 1000.0,
-                        quality=quality,
-                    ))
+            i = 0
+            while i < len(raw) - 10:
+                if raw[i] == 0x54:
+                    length = raw[i + 1]
+                    if length != 0x54 and length > 0 and i + 2 + length * 3 + 2 <= len(raw):
+                        sample_len = length
+                        for s in range(sample_len):
+                            offset = i + 2 + s * 3
+                            if offset + 2 < len(raw):
+                                angle = ((raw[offset + 1] >> 1) | (raw[offset] << 7)) / 64.0
+                                dist_mm = ((raw[offset + 1] & 0x01) << 8) | raw[offset + 2]
+                                if 0 < angle < 365 and dist_mm > 0:
+                                    points.append(LidarPoint(
+                                        angle_deg=angle,
+                                        distance_m=dist_mm / 1000.0,
+                                        quality=0,
+                                    ))
+                        i += 2 + sample_len * 3 + 2
+                        continue
+                i += 1
             self._consecutive_errors = 0
             return LidarScan(timestamp=t, valid=len(points) > 0, points=points)
         except Exception as e:
@@ -213,5 +218,5 @@ class YDLidarX4(BaseSensor):
         half = fov / 2.0
         return [
             p for p in self._last_scan.points
-            if abs(p.angle_deg - angle_deg) <= half and p.distance_m <= max_dist
+            if abs((p.angle_deg - angle_deg + 180) % 360 - 180) <= half and p.distance_m <= max_dist
         ]

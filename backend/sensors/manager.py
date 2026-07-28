@@ -53,11 +53,11 @@ class SensorManager:
             with self._lock:
                 self._latest_mtf01 = mtf
                 self._latest_lidar = lid
-            if lid.valid and lid.points:
-                self.obstacle_map.update_from_lidar(lid.points, self._drone_yaw)
-            if mtf.valid:
-                self.obstacle_map.update_from_ultrasonic(mtf.distance_m, self._drone_yaw)
-            self.obstacle_map.decay(0.995)
+                if lid.valid and lid.points:
+                    self.obstacle_map.update_from_lidar(lid.points, self._drone_yaw)
+                if mtf.valid:
+                    self.obstacle_map.update_from_ultrasonic(mtf.distance_m, self._drone_yaw)
+                self.obstacle_map.decay(0.995)
             time.sleep(0.05)
 
     def set_drone_yaw(self, yaw_deg: float):
@@ -92,7 +92,6 @@ class SensorManager:
             'lidar': self.lidar.status,
         }
 
-    @property
     def has_obstacle_ahead(self, threshold_m: float = 2.0) -> bool:
         mtf_dist = self._latest_mtf01.distance_m if self._latest_mtf01.valid else float('inf')
         if mtf_dist < threshold_m:

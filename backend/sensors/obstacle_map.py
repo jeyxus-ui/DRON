@@ -14,8 +14,8 @@ class ObstacleMap:
         self.width_m = width_m
         self.height_m = height_m
         self.resolution = resolution_m
-        self.cols = int(width_m / resolution_m)
-        self.rows = int(height_m / resolution_m)
+        self.cols = round(width_m / resolution_m)
+        self.rows = round(height_m / resolution_m)
         self.center_x = self.cols // 2
         self.center_y = self.rows // 2
         self.grid = [[0.0] * self.cols for _ in range(self.rows)]
@@ -70,7 +70,7 @@ class ObstacleMap:
         for offset in [0, 30, -30, 60, -60, 90, -90, 120, -120, 180]:
             test_angle = drone_yaw_deg + offset
             blocked = False
-            for d in range(0, int(min_clearance_m / self.resolution)):
+            for d in range(1, int(min_clearance_m / self.resolution) + 1):
                 dist = d * self.resolution
                 rad = math.radians(test_angle)
                 x = dist * math.cos(rad)

@@ -16,8 +16,8 @@ def relative_to_gps(lat: float, lon: float, alt: float,
     dy = forward_m * math.sin(yaw) + right_m * math.cos(yaw)
 
     lat_rad = math.radians(lat)
-    new_lat = lat + (dx / 111320.0)
-    new_lon = lon + (dy / (111320.0 * math.cos(lat_rad)))
+    new_lat = lat + (dy / 111320.0)
+    new_lon = lon + (dx / (111320.0 * math.cos(lat_rad)))
     new_alt = alt + up_m
 
     return new_lat, new_lon, new_alt
@@ -37,9 +37,9 @@ def waypoints_relative_to_gps(current_lat: float, current_lon: float,
     cum_up = 0.0
 
     for wp in rel_waypoints:
-        f = wp.get('forward') or wp.get('x', 0)
-        r = wp.get('right') or wp.get('y', 0)
-        u = wp.get('up') or wp.get('z', 0)
+        f = wp.get('forward', wp.get('x', 0))
+        r = wp.get('right', wp.get('y', 0))
+        u = wp.get('up', wp.get('z', 0))
 
         cum_forward += f
         cum_right += r

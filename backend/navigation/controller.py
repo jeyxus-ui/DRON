@@ -103,6 +103,11 @@ class NavigationController:
         return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     @staticmethod
+    def _angle_diff(a: float, b: float) -> float:
+        diff = abs(a - b) % 360
+        return diff if diff <= 180 else 360 - diff
+
+    @staticmethod
     def _offset_position(lat: float, lon: float, distance_m: float, heading_deg: float):
         R = 6371000
         rad = math.radians(heading_deg)
@@ -143,21 +148,19 @@ class NavigationController:
                     time.sleep(0.2)
                     continue
 
-                # ── AVOIDING / BRAKE → steer away from obstacle ──
-                if avoid['action'] in ('AVOID', 'BRAKE'):
+                # ── AVOIDING / BRAKE / BRAKE_DELAYED → steer away from obstacle ──
+                if avoid['action'] in ('AVOID', 'BRAKE', 'BRAKE_DELAYED'):
                     safe_heading = avoid.get('safe_heading', pos['yaw'])
-                    # Lock heading on first detection, only update if it changes a lot
                     if (self._mode != 'AVOIDING' or
                         self._avoid_heading is None or
-                        abs(self._avoid_heading - safe_heading) > 45):
+                        self._angle_diff(self._avoid_heading, safe_heading) > 45):
                         self._avoid_heading = safe_heading
-                        # Fixed far-away point to avoid oscillations
                         avoid_lat, avoid_lon = self._offset_position(
                             pos['lat'], pos['lon'], 200.0, safe_heading)
                         self._avoid_target = {'lat': avoid_lat, 'lon': avoid_lon, 'alt': pos['alt']}
                         logger.info('[NAV] Esquivando → heading %.1f° → (%.6f, %.6f)',
                                     safe_heading, avoid_lat, avoid_lon)
-                    self._avoid_clear_time = 0  # obstacle still present
+                    self._avoid_clear_time = 0
                     self._mode = 'AVOIDING'
 
                 # ── Obstacle cleared with hysteresis → resume mission ──
@@ -203,7 +206,7 @@ class NavigationController:
     # ── navigation execution ──────────────────────────────────────────────────
 
     def _exec_nav(self, pos: dict):
-        if not self._target or not pos['lat'] or not pos['lon']:
+        if not self._target or pos['lat'] is None or pos['lon'] is None:
             return
         t = self._target
         dst = self._haversine(pos['lat'], pos['lon'], t['lat'], t['lon'])
@@ -246,7 +249,7 @@ class NavigationController:
             self._waypoints = []
             return
         wp = self._waypoints[self._wp_index]
-        if pos['lat'] and pos['lon']:
+        if pos['lat'] is not None and pos['lon'] is not None:
             dst = self._haversine(pos['lat'], pos['lon'], wp['lat'], wp['lon'])
             if dst < 2.0:
                 self._wp_index += 1

@@ -47,7 +47,7 @@ class PathPlanner:
         waypoints = []
         lat_per_m = 1.0 / 111320.0
         lon_per_m = 1.0 / (111320.0 * math.cos(math.radians(center_lat)))
-        for r in range(0, int(radius_m), int(spacing_m)):
+        for r in range(0, int(radius_m), max(1, int(spacing_m))):
             for theta_deg in range(0, 360, 30):
                 rad = math.radians(theta_deg)
                 lon = center_lon + r * math.cos(rad) * lon_per_m

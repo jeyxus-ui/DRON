@@ -14,4 +14,4 @@ class Telemetry(Base):
     roll = Column(Float)
     yaw = Column(Float)
     battery = Column(Float)
-    timestamp = Column(TIMESTAMP, default=datetime.datetime.utcnow)
+    timestamp = Column(TIMESTAMP, default=datetime.datetime.now(datetime.timezone.utc))
