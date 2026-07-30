@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, Modal, Alert,
 } from 'react-native';
-import { getStoredIp, saveIp } from '../utils/ipConfig';
+import { getStoredIp, saveIp, getStoredMaxAltitude, saveMaxAltitude } from '../utils/ipConfig';
+import { getApiUrl, setMaxAltitude } from '../config';
 
 const VIOLET = '#8B5CF6';
 const LABEL = '#666';
@@ -14,10 +15,12 @@ interface Props {
 
 export const IpConfigModal: React.FC<Props> = ({ visible, onClose }) => {
   const [ip, setIp] = useState('');
+  const [maxAlt, setMaxAlt] = useState('');
 
   useEffect(() => {
     if (visible) {
       getStoredIp().then(setIp);
+      getStoredMaxAltitude().then(a => setMaxAlt(String(a)));
     }
   }, [visible]);
 
@@ -29,7 +32,19 @@ export const IpConfigModal: React.FC<Props> = ({ visible, onClose }) => {
       Alert.alert('Error', 'IP inválida (ej: 192.168.1.100)');
       return;
     }
+    const altNum = parseInt(maxAlt, 10);
+    if (isNaN(altNum) || altNum < 2 || altNum > 500) {
+      Alert.alert('Error', 'Límite de altura debe ser entre 2 y 500 m');
+      return;
+    }
     await saveIp(trimmed);
+    await saveMaxAltitude(altNum);
+    setMaxAltitude(altNum);
+    try {
+      await fetch(`${getApiUrl()}/api/diag/param/set?name=FENCE_ALT_MAX&value=${altNum}`, { method: 'POST' });
+    } catch {
+      // backend puede estar offline, se aplicará al reconectar
+    }
     onClose(true);
   };
 
@@ -37,7 +52,7 @@ export const IpConfigModal: React.FC<Props> = ({ visible, onClose }) => {
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => onClose(false)}>
       <View style={styles.overlay}>
         <View style={styles.content}>
-          <Text style={styles.title}>CONFIGURACIÓN DE RED</Text>
+          <Text style={styles.title}>CONFIGURACIÓN</Text>
           <Text style={styles.label}>IP del servidor / drone:</Text>
           <TextInput
             style={styles.input}
@@ -48,10 +63,20 @@ export const IpConfigModal: React.FC<Props> = ({ visible, onClose }) => {
             placeholderTextColor="#444"
             autoCapitalize="none"
             autoCorrect={false}
-            returnKeyType="done"
-            onSubmitEditing={handleSave}
+            returnKeyType="next"
           />
-          <Text style={styles.hint}>La app se reconectará automáticamente al guardar</Text>
+          <Text style={styles.divider}>─</Text>
+          <Text style={styles.label}>Altura máxima (m):</Text>
+          <TextInput
+            style={styles.input}
+            value={maxAlt}
+            onChangeText={setMaxAlt}
+            keyboardType="number-pad"
+            placeholder="100"
+            placeholderTextColor="#444"
+            returnKeyType="done"
+          />
+          <Text style={styles.hint}>La app se reconectará automáticamente al guardar la IP</Text>
           <View style={styles.actions}>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => onClose(false)} activeOpacity={0.7}>
               <Text style={styles.cancelText}>CANCELAR</Text>
@@ -125,6 +150,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     marginBottom: 16,
+  },
+  divider: {
+    color: VIOLET + '44',
+    fontSize: 14,
+    textAlign: 'center',
+    marginVertical: 6,
   },
   actions: {
     flexDirection: 'row',

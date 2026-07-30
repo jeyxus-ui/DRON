@@ -144,7 +144,7 @@ def _get_sensor_data():
                 'lidar_closest_distance': data.get('lidar', {}).get('closest_distance'),
                 'lidar_closest_angle': data.get('lidar', {}).get('closest_angle'),
                 'lidar_points': data.get('lidar', {}).get('points', 0),
-                'obstacle_ahead': sensor_manager.has_obstacle_ahead,
+                'obstacle_ahead': sensor_manager.has_obstacle_ahead(),
             }
     except Exception:
         pass
@@ -233,7 +233,10 @@ async def process_command(command: dict, mav_controller) -> dict:
     cmd_type = command.get("type", "")
     params   = command.get("params", {})
 
-    logger.info(f"Procesando comando: {cmd_type} | params: {params}")
+    if cmd_type != "RC_CONTROL":
+        logger.info(f"Procesando comando: {cmd_type} | params: {params}")
+    else:
+        logger.debug(f"Procesando comando: {cmd_type} | params: {params}")
 
     if not mav_controller:
         return {"success": False, "message": "No hay dron conectado — el backend no pudo conectar con el Pixhawk"}
@@ -563,7 +566,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             cmd_type = message.get("type", "<sin tipo>")
-            logger.info(f"[WS] {client_id} → {cmd_type}")
+            if cmd_type != "RC_CONTROL":
+                logger.info(f"[WS] {client_id} → {cmd_type}")
+            else:
+                logger.debug(f"[WS] {client_id} → {cmd_type}")
 
             result = await process_command(message, mav_controller)
 

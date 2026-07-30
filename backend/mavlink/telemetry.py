@@ -67,10 +67,10 @@ class DroneTelemetry:
     # ============================================
 
     def _request_streams(self):
-        """Solicitar data streams al Pixhawk — espera conexión activa primero."""
+        """Solicitar streams con MAV_CMD_SET_MESSAGE_INTERVAL (ArduPilot 4.5+)."""
         logger.info("⏳ Esperando conexión para solicitar streams...")
 
-        for _ in range(40):  # hasta 20 segundos
+        for _ in range(40):
             if self.conn.is_connected():
                 break
             time.sleep(0.5)
@@ -82,22 +82,28 @@ class DroneTelemetry:
         try:
             master = self.conn.master
             target_sys = master.target_system
-            comps = [master.target_component] if master.target_component != 0 else [1, 0]
-            STREAMS = [
-                (mavutil.mavlink.MAV_DATA_STREAM_RAW_SENSORS, 2),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTENDED_STATUS, 2),
-                (mavutil.mavlink.MAV_DATA_STREAM_RC_CHANNELS, 2),
-                (mavutil.mavlink.MAV_DATA_STREAM_POSITION, 5),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA1, 5),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA2, 2),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA3, 1),
+            target_comp = master.target_component
+
+            MESSAGES = [
+                (mavutil.mavlink.MAVLINK_MSG_ID_BATTERY_STATUS, 500_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_GPS_RAW_INT, 200_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS, 500_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, 200_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_VFR_HUD, 200_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_HOME_POSITION, 1_000_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_EKF_STATUS_REPORT, 500_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 200_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_RC_CHANNELS, 200_000),
             ]
-            for comp in comps:
-                for stream_id, rate_hz in STREAMS:
-                    master.mav.request_data_stream_send(
-                        target_sys, comp, stream_id, rate_hz, 1,
-                    )
-            logger.info(f"✅ Streams solicitados al Pixhawk (comps={comps}, max=5 Hz)")
+
+            for msg_id, interval_us in MESSAGES:
+                master.mav.command_long_send(
+                    target_sys, target_comp,
+                    mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                    0, msg_id, interval_us, 0, 0, 0, 0, 0,
+                )
+
+            logger.info(f"✅ Streams configurados via MAV_CMD_SET_MESSAGE_INTERVAL (target_comp={target_comp})")
         except Exception as e:
             logger.error(f"❌ Error solicitando streams: {e}")
 
@@ -224,7 +230,16 @@ class DroneTelemetry:
         msg_type = msg.get_type()
         
         try:
-            if msg_type == "VFR_HUD":
+            if msg_type == "STATUSTEXT":
+                severity = getattr(msg, 'severity', -1)
+                text = getattr(msg, 'text', '').rstrip('\x00').strip()
+                # Emergency-level messages
+                if severity <= 3:
+                    logger.warning(f"🛑 PIXHAWK STATUS [{severity}]: {text}")
+                else:
+                    logger.info(f"📋 PIXHAWK STATUS [{severity}]: {text}")
+            
+            elif msg_type == "VFR_HUD":
                 self.data['altitude'] = round(msg.alt, 2)
                 self.data['speed'] = round(msg.airspeed, 2)
                 self.data['climb_rate'] = round(msg.climb, 2)
