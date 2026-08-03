@@ -29,6 +29,7 @@ state = dict(
 )
 
 missions = []
+mission_count = 0
 home_position = None
 seq_counter = 0
 goto_target = None  # (lat_int, lon_int, alt_mm) — navegación suave hacia waypoint
@@ -80,7 +81,7 @@ def send_to_all(buf):
 
 
 def handle_message(msg, _sender):
-    global state, missions, home_position
+    global state, missions, mission_count, home_position
     t = msg.get_type()
 
     if t == "HEARTBEAT":
@@ -104,7 +105,7 @@ def handle_message(msg, _sender):
             print(f"[SIM] {'ARM' if state['armed'] else 'DISARM'}")
 
         elif cmd == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF:
-            alt = p[7] if p[7] else 10
+            alt = p[6] if p[6] else 10
             with lock:
                 state["armed"] = True; state["mode"] = "GUIDED"; state["custom_mode"] = 4
                 state["alt"] = int(alt * 1000); state["relative_alt"] = int(alt * 1000)
@@ -178,7 +179,9 @@ def handle_message(msg, _sender):
             send_to_all(pack_msg(ack))
 
     if t == "MISSION_COUNT":
-        with lock: missions.clear()
+        with lock:
+            missions.clear()
+            mission_count = msg.count
         print(f"[SIM] Mission upload: {msg.count} WPs")
         send_to_all(pack_msg(mav.mission_request_int_encode(msg.target_system, msg.target_component, 0)))
 
@@ -204,8 +207,14 @@ def handle_message(msg, _sender):
         with lock:
             while len(missions) <= msg.seq: missions.append(None)
             missions[msg.seq] = (msg.x, msg.y, msg.z)
-        send_to_all(pack_msg(mav.mission_request_int_encode(
-            msg.target_system, msg.target_component, msg.seq + 1)))
+            count = mission_count
+        if count > 0 and msg.seq >= count - 1:
+            print(f"[SIM] Mission uploaded: {count} WPs (via MISSION_ITEM_INT)")
+            send_to_all(pack_msg(mav.mission_ack_encode(
+                msg.target_system, msg.target_component, mavutil.mavlink.MAV_MISSION_ACCEPTED)))
+        else:
+            send_to_all(pack_msg(mav.mission_request_int_encode(
+                msg.target_system, msg.target_component, msg.seq + 1)))
 
     if t == "MISSION_SET_CURRENT":
         with lock: state["mode"] = "AUTO"; state["custom_mode"] = 3

@@ -45,8 +45,8 @@ async def run():
             print('  FALLO: dron no armado')
             return
 
-        print('\n--- TAKEOFF 15m ---')
-        r = api('POST', '/api/takeoff', {"altitude": 15}, timeout=60)
+        print('\n--- TAKEOFF 10m ---')
+        r = api('POST', '/api/takeoff', {"altitude": 10}, timeout=60)
         print(f'  {r}')
 
         alt = 0
@@ -59,7 +59,7 @@ async def run():
             alt = round(t.get('altitude', 584) - 584, 1)
             if i % 5 == 0:
                 print(f'    t={i+1}s alt={alt}m')
-            if alt > 13:
+            if alt > 8:
                 print(f'    Listo a {alt}m')
                 break
 

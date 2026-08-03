@@ -44,7 +44,7 @@ export const GPSScreen: React.FC = () => {
   const [waypoints, setWaypoints]     = useState<Waypoint[]>([]);
   const [targetWp, setTargetWp]       = useState<Waypoint | null>(null);
   const [mapType, setMapType]         = useState<'satellite' | 'standard'>('satellite');
-  const [followDrone, setFollowDrone] = useState(true);
+  const [followDrone, setFollowDrone] = useState(false);
   const [gotoAlt, setGotoAlt]         = useState(10);
 
   const mapRef    = useRef<MapView>(null);

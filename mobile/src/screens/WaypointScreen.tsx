@@ -140,7 +140,7 @@ export const WaypointScreen: React.FC = () => {
 
   const doGotoWaypoint = (wp: WaypointItem) => {
     setLoading(`goto_${wp.id}`);
-    sendCommand('GOTO', { forward: wp.forward, right: wp.right, up: wp.up })
+    sendCommand('GOTO_RELATIVE', { forward: wp.forward, right: wp.right, up: wp.up })
       .then(res => {
         setLoading('');
         Alert.alert(res.success ? 'Navegando' : 'Error', res.message);

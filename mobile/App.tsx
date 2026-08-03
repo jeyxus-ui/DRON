@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { View, Dimensions, StyleSheet, FlatList, Text, TouchableOpacity, Animated } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DroneProvider } from './src/context/DroneContext';
 import { DroneControlScreen } from './src/screens/DroneControlScreen';
@@ -7,8 +7,6 @@ import { TelemetryScreen }    from './src/screens/TelemetryScreen';
 import { GPSScreen } from './src/screens/GPSScreen';
 import { WaypointScreen }     from './src/screens/WaypointScreen';
 import { ErrorHistoryModal } from './src/components/ErrorHistoryModal';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const TAB_ACCENTS = ['#FF8800', '#00B4D8', '#8B5CF6', '#14B8A6'];
 
@@ -20,47 +18,16 @@ const SCREENS = [
 ];
 
 export default function App() {
-  const flatListRef  = useRef<FlatList>(null);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const scrollToScreen = (index: number) => {
-    flatListRef.current?.scrollToIndex({ index, animated: true });
-    setActiveIdx(index);
-  };
-
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) {
-      setActiveIdx(viewableItems[0].index ?? 0);
-    }
-  }).current;
-
-  const renderScreen = ({ item }: { item: (typeof SCREENS)[0] }) => {
-    const ScreenComponent = item.component;
-    return (
-      <View style={styles.screen}>
-        <ScreenComponent />
-      </View>
-    );
-  };
+  const ActiveScreen = SCREENS[activeIdx].component;
 
   return (
     <SafeAreaProvider>
       <DroneProvider>
         <View style={styles.root}>
           <ErrorHistoryModal />
-          <FlatList
-            ref={flatListRef}
-            data={SCREENS}
-            renderItem={renderScreen}
-            keyExtractor={(item) => item.id}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            bounces={false}
-            scrollEventThrottle={16}
-            onViewableItemsChanged={onViewableItemsChanged}
-            viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
-          />
+          <ActiveScreen />
 
           {/* ── Tab bar de navegación ── */}
           <View style={styles.tabBar}>
@@ -70,7 +37,7 @@ export default function App() {
                 <TouchableOpacity
                   key={s.id}
                   style={[styles.tabItem, activeIdx === i && { backgroundColor: accent + '12' }]}
-                  onPress={() => scrollToScreen(i)}
+                  onPress={() => setActiveIdx(i)}
                   activeOpacity={0.75}
                 >
                   <Text style={styles.tabIcon}>{s.icon}</Text>
@@ -92,11 +59,6 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root: {
-    flex:            1,
-    backgroundColor: '#050508',
-  },
-  screen: {
-    width:           SCREEN_WIDTH,
     flex:            1,
     backgroundColor: '#050508',
   },

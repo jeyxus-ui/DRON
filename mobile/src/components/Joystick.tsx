@@ -3,6 +3,13 @@ import { View, StyleSheet, Dimensions, Animated, GestureResponderEvent } from 'r
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+export interface NormalizedPosition {
+  /** -1..1 for yaw/roll (mode2) or roll/pitch (both) */
+  x: number;
+  /** mode2: 0..1 (throttle), both: -1..1 (pitch) */
+  y: number;
+}
+
 interface JoystickProps {
   onMove:          (x: number, y: number) => void;
   size?:           number;
@@ -12,6 +19,8 @@ interface JoystickProps {
   deadzoneX?:      number;
   deadzoneY?:      number;
   resetToBottom?:  boolean;
+  /** When set, the joystick ignores touch events and renders at this position */
+  controlled?:     NormalizedPosition | null;
 }
 
 export const Joystick: React.FC<JoystickProps> = ({
@@ -23,6 +32,7 @@ export const Joystick: React.FC<JoystickProps> = ({
   deadzoneX     = 0.05,
   deadzoneY     = 0.04,
   resetToBottom = false,
+  controlled    = null,
 }) => {
   const stickR  = size / 4;
   const maxDist = size / 2 - stickR;
@@ -36,6 +46,22 @@ export const Joystick: React.FC<JoystickProps> = ({
   const viewRef     = useRef<View>(null);
 
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+  // Sync controlled position to animation values
+  useEffect(() => {
+    if (!controlled) return;
+    if (mode === 'mode2') {
+      const tx = clamp(controlled.x, -1, 1) * maxDist;
+      const ty = maxDist - clamp(controlled.y, 0, 1) * 2 * maxDist;
+      animX.setValue(tx);
+      animY.setValue(ty);
+    } else {
+      const tx = clamp(controlled.x, -1, 1) * maxDist;
+      const ty = -clamp(controlled.y, -1, 1) * maxDist;
+      animX.setValue(tx);
+      animY.setValue(ty);
+    }
+  }, [controlled, mode, maxDist, animX, animY]);
 
   const normalize = useCallback((px: number, py: number) => {
     if (mode === 'mode2') {
@@ -92,6 +118,7 @@ export const Joystick: React.FC<JoystickProps> = ({
   }, [mode, maxDist, deadzoneY, animX, animY, onMove]);
 
   useEffect(() => {
+    if (controlled) return; // skip reset when controlled externally
     if (mode === 'mode2' && resetToBottom) {
       animX.stopAnimation();
       animY.stopAnimation();
@@ -100,9 +127,10 @@ export const Joystick: React.FC<JoystickProps> = ({
       throttleRef.current = maxDist;
       onMove(0, 0);
     }
-  }, [resetToBottom]);
+  }, [resetToBottom, controlled]);
 
   const handleTouchStart = useCallback((e: GestureResponderEvent) => {
+    if (controlled) return;
     if (touchId.current !== null) return;
     const touch = e.nativeEvent.touches[0] || e.nativeEvent.changedTouches[0];
     if (!touch) return;
@@ -115,9 +143,10 @@ export const Joystick: React.FC<JoystickProps> = ({
       const py = touch.pageY - cy;
       normalize(px, py);
     });
-  }, [normalize]);
+  }, [normalize, controlled]);
 
   const handleTouchMove = useCallback((e: GestureResponderEvent) => {
+    if (controlled) return;
     const touches: any[] = [];
     if (e.nativeEvent.touches) touches.push(...e.nativeEvent.touches);
     if (e.nativeEvent.changedTouches) touches.push(...e.nativeEvent.changedTouches);
@@ -131,9 +160,10 @@ export const Joystick: React.FC<JoystickProps> = ({
       const py = touch.pageY - cy;
       normalize(px, py);
     });
-  }, [normalize]);
+  }, [normalize, controlled]);
 
   const handleTouchEnd = useCallback((e: GestureResponderEvent) => {
+    if (controlled) return;
     const touches: any[] = [];
     if (e.nativeEvent.touches) touches.push(...e.nativeEvent.touches);
     if (e.nativeEvent.changedTouches) touches.push(...e.nativeEvent.changedTouches);
@@ -141,7 +171,7 @@ export const Joystick: React.FC<JoystickProps> = ({
     if (stillActive) return;
     touchId.current = null;
     resetStick();
-  }, [resetStick]);
+  }, [resetStick, controlled]);
 
   const throttleBarScale = animY.interpolate({
     inputRange:  [-maxDist, maxDist],

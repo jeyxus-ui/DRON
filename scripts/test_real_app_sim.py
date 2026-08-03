@@ -72,7 +72,7 @@ def main():
     time.sleep(2)
     log("armed")
 
-    r = api("POST", "/takeoff", {"altitude": 12}, timeout=60)
+    r = api("POST", "/takeoff", {"altitude": 10}, timeout=60)
     print(f"  TAKEOFF: {r['message']}")
 
     for i in range(15):

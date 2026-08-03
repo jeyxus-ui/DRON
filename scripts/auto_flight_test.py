@@ -46,15 +46,15 @@ print(f'  {r}')
 time.sleep(3)
 show('POST-ARM')
 
-print('\n--- 3. TAKEOFF 15m ---')
-r = api('POST', '/api/takeoff', {"altitude": 15})
+print('\n--- 3. TAKEOFF 10m ---')
+r = api('POST', '/api/takeoff', {"altitude": 10})
 print(f'  {r}')
 for i in range(20):
     time.sleep(1)
     t = api('GET', '/api/telemetry')
     alt = round(t.get('altitude', 584) - 584, 1)
     print(f'  t={i+1}s alt={alt}m')
-    if alt > 12:
+    if alt > 8:
         break
 show('POST-TAKEOFF')
 

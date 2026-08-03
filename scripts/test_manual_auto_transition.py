@@ -64,13 +64,13 @@ def main():
     time.sleep(2)
     log_state("POST-ARM")
 
-    r = api("POST", "/takeoff", {"altitude": 15}, timeout=60)
+    r = api("POST", "/takeoff", {"altitude": 10}, timeout=60)
     print(f"  TAKEOFF: {r['message']}")
     
     for i in range(30):
         time.sleep(1)
         t = log_state(f"CLIMB t={i+1}s")
-        if t['altitude'] >= 13:
+        if t['altitude'] >= 8:
             print(f"  Reached {t['altitude']:.1f}m -- ready for manual")
             break
 
