@@ -22,7 +22,7 @@ class SensorManager:
         self.obstacle_map = ObstacleMap(width_m=20, height_m=20, resolution_m=0.2)
         self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
         self._latest_mtf01 = DistanceReading(timestamp=0, valid=False)
         self._latest_lidar = LidarScan(timestamp=0, valid=False)
@@ -93,15 +93,17 @@ class SensorManager:
         }
 
     def has_obstacle_ahead(self, threshold_m: float = 2.0) -> bool:
-        mtf_dist = self._latest_mtf01.distance_m if self._latest_mtf01.valid else float('inf')
-        if mtf_dist < threshold_m:
-            return True
-        if self._latest_lidar.valid and self._latest_lidar.points:
-            front = self.lidar.get_obstacles_in_zone(0, fov=45, max_dist=threshold_m)
-            if front:
+        with self._lock:
+            mtf_dist = self._latest_mtf01.distance_m if self._latest_mtf01.valid else float('inf')
+            if mtf_dist < threshold_m:
                 return True
-        return False
+            if self._latest_lidar.valid and self._latest_lidar.points:
+                for p in self._latest_lidar.points:
+                    if p.distance_m < threshold_m and abs(p.angle_deg) < 45:
+                        return True
+            return False
 
     @property
     def safe_direction(self) -> float:
-        return self.obstacle_map.find_free_direction(self._drone_yaw, min_clearance_m=2.0)
+        with self._lock:
+            return self.obstacle_map.find_free_direction(self._drone_yaw, min_clearance_m=2.0)

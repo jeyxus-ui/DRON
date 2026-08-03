@@ -213,6 +213,26 @@ async def diag_rc():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/diag/servo_raw")
+async def diag_servo_raw():
+    """Lee SERVO_OUTPUT_RAW del Pixhawk (PWM real que está emitiendo)."""
+    try:
+        ctrl = get_mav_controller()
+        data = ctrl.get_servo_output_raw()
+        return {"success": "error" not in data, "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/diag/rc_channels")
+async def diag_rc_channels():
+    """Lee RC_CHANNELS del Pixhawk (lo que ve como entrada)."""
+    try:
+        ctrl = get_mav_controller()
+        data = ctrl.get_rc_channels()
+        return {"success": "error" not in data, "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ── Control Básico ─────────────────────────────────────────────────────────────
 
 @router.post("/arm")

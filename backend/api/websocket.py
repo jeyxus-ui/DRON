@@ -146,8 +146,8 @@ def _get_sensor_data():
                 'lidar_points': data.get('lidar', {}).get('points', 0),
                 'obstacle_ahead': sensor_manager.has_obstacle_ahead(),
             }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Error obteniendo datos de sensores: %s", e)
     return {}
 
 
@@ -155,15 +155,14 @@ async def get_telemetry_data(mav_controller) -> dict:
     """Extrae telemetría del controlador MAVLink + sensores."""
     try:
         # Priorizar datos externos del bridge raspberry/
-        try:
-            from backend.api.rest import _external_mavlink_data, _external_update_time
-            now = time.time()
-            if _external_update_time > 0 and now - _external_update_time < 30 and _external_mavlink_data:
-                tel = dict(_external_mavlink_data)
-                tel.update(_get_sensor_data())
-                return tel
-        except Exception:
-            pass
+        from backend.api.rest import _external_mavlink_data, _external_update_time
+        now = time.time()
+        if _external_update_time > 0 and now - _external_update_time < 30 and _external_mavlink_data:
+            tel = dict(_external_mavlink_data)
+            tel.update(_get_sensor_data())
+            return tel
+    except Exception as e:
+        logger.debug("Error obteniendo datos de sensores: %s", e)
 
         telemetry = getattr(mav_controller, "telemetry", None)
         sensors = _get_sensor_data()
@@ -552,8 +551,8 @@ async def websocket_endpoint(websocket: WebSocket):
             "mavlink": health,
             "timestamp": datetime.utcnow().isoformat(),
         })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Error enviando welcome message: %s", e)
 
     try:
         while True:

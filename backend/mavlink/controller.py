@@ -66,6 +66,7 @@ class MAVController:
         self.cmd.telemetry = self.telemetry
         self.master = self.conn.master
         self.rc = RCOverrideController(self.conn)
+        self.rc._reconnect_callback = self._rearm_after_failsafe
         self.rc.start()
         # Callback desde telemetría HEARTBEAT para detectar armado real
         self.conn._rc_callback = self.rc.set_armed
@@ -95,8 +96,10 @@ class MAVController:
     def get_critical_params(self) -> dict:
         """Read and return critical diagnostic parameters."""
         critical = [
+            'MOT_SPIN_ARM', 'MOT_SPIN_MIN', 'MOT_SPIN_MAX',
+            'MOT_PWM_MIN', 'MOT_PWM_MAX',
             'DISARM_DELAY', 'ARMING_CHECK',
-            'RC_OVERRIDE_TIME',
+            'RC_OVERRIDE_TIME', 'BRD_SAFETY_DEFLT',
             'BATT_MONITOR', 'BATT_N_CELLS', 'BATT_LOW_VOLT', 'BATT_FS_LOW_ACT',
         ]
         result = {}
@@ -104,6 +107,57 @@ class MAVController:
             val = self.read_param_safe(name)
             if val is not None:
                 result[name] = val
+        return result
+
+    def get_servo_output_raw(self) -> dict:
+        """Read SERVO_OUTPUT_RAW from Pixhawk (actual PWM output)."""
+        result = {}
+        master = getattr(self.conn, 'master', None)
+        if not master:
+            return {"error": "no connection"}
+        try:
+            master.mav.command_long_send(
+                master.target_system, master.target_component,
+                mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                0, mavutil.mavlink.MAVLINK_MSG_ID_SERVO_OUTPUT_RAW, 200_000,
+                0, 0, 0, 0, 0,
+            )
+            msg = master.recv_match(type='SERVO_OUTPUT_RAW', blocking=True, timeout=2)
+            if msg:
+                for i in range(1, 9):
+                    pwm = getattr(msg, f'servo{i}_raw', 0)
+                    result[f'ch{i}'] = pwm
+                result['port'] = msg.port
+            else:
+                result["error"] = "timeout waiting for SERVO_OUTPUT_RAW"
+        except Exception as e:
+            result["error"] = str(e)
+        return result
+
+    def get_rc_channels(self) -> dict:
+        """Read RC_CHANNELS from Pixhawk (what it sees as input)."""
+        result = {}
+        master = getattr(self.conn, 'master', None)
+        if not master:
+            return {"error": "no connection"}
+        try:
+            master.mav.command_long_send(
+                master.target_system, master.target_component,
+                mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                0, mavutil.mavlink.MAVLINK_MSG_ID_RC_CHANNELS, 200_000,
+                0, 0, 0, 0, 0,
+            )
+            msg = master.recv_match(type='RC_CHANNELS', blocking=True, timeout=2)
+            if msg:
+                for i in range(1, 19):
+                    chan = getattr(msg, f'chan{i}_raw', 0)
+                    if chan != 65535 and chan != 0:
+                        result[f'ch{i}'] = chan
+                result['rssi'] = getattr(msg, 'rssi', 0)
+            else:
+                result["error"] = "timeout waiting for RC_CHANNELS"
+        except Exception as e:
+            result["error"] = str(e)
         return result
 
     # Telemetry / status wrappers
@@ -121,6 +175,28 @@ class MAVController:
 
     def preflight_checks(self):
         return self.telemetry.preflight_checks()
+
+    # ── Re-arm automático tras failsafe ───────────────────────────────────
+
+    def _rearm_after_failsafe(self):
+        """Dispara re-arm en un hilo separado para no bloquear al caller."""
+        import threading
+        t = threading.Thread(target=self._do_rearm, daemon=True)
+        t.start()
+
+    def _do_rearm(self):
+        """Re-arma el Pixhawk tras un failsafe disarm."""
+        logger.warning('🚁 Re-armando tras failsafe...')
+        time.sleep(0.5)
+        try:
+            result = self.cmd.arm(force=True)
+            if result:
+                logger.warning('✅ Re-arm exitoso tras failsafe')
+                self.rc.set_armed(True)
+            else:
+                logger.error('❌ Re-arm falló tras failsafe')
+        except Exception as e:
+            logger.error('❌ Error en re-arm tras failsafe: %s', e)
 
     # Basic commands
     def arm(self, force=True):
@@ -169,7 +245,10 @@ class MAVController:
 
     def is_armed(self):
         st = self.get_status()
-        return st.get("armed", False) if isinstance(st, dict) else False
+        armed = st.get("armed", False) if isinstance(st, dict) else False
+        if armed and self.conn and not self.conn.is_heartbeat_healthy():
+            return False
+        return armed
 
     def get_mode(self):
         st = self.get_status()
@@ -484,3 +563,18 @@ class _SimulatedController:
 
     def get_flight_logs(self):
         return []
+
+    def get_critical_params(self) -> dict:
+        return {'__mode__': 'SIM', '__params__': list(self._params.keys())}
+
+    def test_motor(self, motor_id: int, throttle_pct: float = 10.0,
+                   duration_s: float = 1.5, even_if_armed: bool = False) -> bool:
+        logger.info(f"🔧 SIM MOTOR TEST — motor {motor_id} @ {throttle_pct}% for {duration_s}s")
+        time.sleep(min(duration_s, 0.5))
+        return True
+
+    def get_servo_output_raw(self) -> dict:
+        return {"sim": True, "ch1": 1500, "ch2": 1500, "ch3": 1500, "ch4": 1500}
+
+    def get_rc_channels(self) -> dict:
+        return {"sim": True, "ch3": 1500, "rssi": 255}

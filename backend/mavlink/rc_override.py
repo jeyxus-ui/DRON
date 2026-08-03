@@ -61,6 +61,7 @@ class RCOverrideController:
         self._failsafe_fired = False
         self._disconnected_at: float | None = None
         self._disarmed_by_failsafe = False
+        self._reconnect_callback = None  # opcional: se llama si failsafe había desarmado
         logger.info("RCOverrideController inicializado")
 
     def start(self):
@@ -126,19 +127,21 @@ class RCOverrideController:
                             with self.lock:
                                 self._disarmed_by_failsafe = True
                             logger.critical('🚨 FAILSAFE — throttle 0, desarmando motores')
-                            master = self.conn.master
-                            if master is not None:
-                                try:
-                                    master.mav.command_long_send(
-                                        master.target_system,
-                                        master.target_component,
-                                        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-                                        0, 0, 0, 0, 0, 0, 0, 0,
-                                    )
-                                    logger.critical('✅ FAILSAFE — comando DISARM enviado')
-                                except Exception as e:
-                                    logger.critical('❌ FAILSAFE — error enviando DISARM: %s', e)
-                            time.sleep(0.1)
+                            for _ in range(3):
+                                master = getattr(self.conn, 'master', None)
+                                if master is not None:
+                                    try:
+                                        master.mav.command_long_send(
+                                            master.target_system,
+                                            master.target_component,
+                                            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                                            0, 0, 21196, 0, 0, 0, 0, 0,
+                                        )
+                                        logger.critical('✅ FAILSAFE — comando DISARM enviado (force)')
+                                        break
+                                    except Exception as e:
+                                        logger.critical('❌ FAILSAFE — error enviando DISARM: %s', e)
+                                time.sleep(1.0)
                             continue
 
                 # ── Convertir a PWM y enviar ─────────────────────────────
@@ -147,10 +150,11 @@ class RCOverrideController:
                 ch_throttle = self._to_pwm_throttle(use_throttle)
                 ch_yaw      = self._to_pwm(use_yaw)
 
-                master = self.conn.master
+                master = getattr(self.conn, 'master', None)
                 if master is not None:
                     try:
-                        master.mav.rc_channels_override_send(
+                        with getattr(self.conn, '_lock', threading.Lock()):
+                            master.mav.rc_channels_override_send(
                             master.target_system,
                             master.target_component,
                             ch_roll,     # CH1 Roll
@@ -250,18 +254,27 @@ class RCOverrideController:
     def on_reconnect(self):
         """
         Cancela el failsafe de desconexión.
-        El cliente se reconectó antes del timeout.
+        Si el failsafe ya había desarmado el Pixhawk, dispara re-arm automático.
         """
+        was_disarmed = False
         with self.lock:
+            was_disarmed = self._disarmed_by_failsafe
             self._disconnected_at = None
             self._disarmed_by_failsafe = False
             logger.info('🔁 RC reconectado — failsafe cancelado')
+        if was_disarmed and self._reconnect_callback:
+            try:
+                logger.warning('🔁 FAILSAFE HABÍA DESARMADO — re-armando motores...')
+                self._reconnect_callback()
+            except Exception as e:
+                logger.error('Error en callback de re-arm: %s', e)
 
     def set_controls(self, throttle=None, yaw=None, pitch=None, roll=None):
         """
         Establece múltiples controles normalizados a la vez.
         Todos los valores deben estar en rango normalizado (no PWM).
         """
+        was_disarmed = False
         with self.lock:
             if throttle is not None:
                 self.throttle = max(0.0, min(1.0, float(throttle)))
@@ -273,9 +286,16 @@ class RCOverrideController:
                 self.roll = self._apply_deadband(roll)
             # Cualquier set_controls implica cliente activo → cancela failsafe
             if self._disconnected_at is not None:
+                was_disarmed = self._disarmed_by_failsafe
                 self._disconnected_at = None
                 self._disarmed_by_failsafe = False
                 logger.info('🔁 RC reconectado por set_controls — failsafe cancelado')
+        if was_disarmed and self._reconnect_callback:
+            try:
+                logger.warning('🔁 FAILSAFE HABÍA DESARMADO — re-armando motores...')
+                self._reconnect_callback()
+            except Exception as e:
+                logger.error('Error en callback de re-arm: %s', e)
 
     def reset_controls(self):
         with self.lock:
@@ -285,10 +305,14 @@ class RCOverrideController:
         with self.lock:
             self._armed = armed
             if armed:
+                self._armed_at = time.time()
+                self._failsafe_fired = False
                 logger.info('⏳ ARM — idle throttle %.0f%%', self.IDLE_THROTTLE * 100)
             else:
+                self._armed_at = None
                 self.throttle = 0.0
                 self.roll = self.pitch = self.yaw = 0.0
+                self._failsafe_fired = False
                 logger.info('⏹ DISARM — controles reseteados a 0')
 
     def is_connected(self) -> bool:

@@ -14,10 +14,13 @@ logger = logging.getLogger(__name__)
 
 class DroneTelemetry:
     """Clase para leer y almacenar telemetría del dron"""
-    
+
+    MAX_SERIAL_ERRORS = 50
+
     def __init__(self, connection, persist_interval: float = 5.0):
         self.conn = connection
-        
+        self._serial_read_errors = 0
+
         self.data = {
             'altitude': 0.0,
             'speed': 0.0,
@@ -177,9 +180,10 @@ class DroneTelemetry:
                     time.sleep(0.01)
                     continue
 
-                msg = self.conn.recv_match(blocking=False)
+                msg = self.conn.recv_match(blocking=True, timeout=0.01)
                 
                 if msg:
+                    self._serial_read_errors = 0
                     # Track ANY message received
                     self.conn.update_msg_time()
                     mtype = msg.get_type()
@@ -219,6 +223,18 @@ class DroneTelemetry:
                 
                 time.sleep(0.01)  # 100 Hz
                 
+            except (OSError, IOError) as e:
+                self._serial_read_errors += 1
+                print(f"[READ_LOOP-SERIAL-ERROR] #{self._serial_read_errors}: {type(e).__name__}: {e}", flush=True)
+                logger.warning(
+                    "Error serial en read_loop (#%d/%d): %s",
+                    self._serial_read_errors, self.MAX_SERIAL_ERRORS, e
+                )
+                if self._serial_read_errors >= self.MAX_SERIAL_ERRORS:
+                    logger.error("Demasiados errores seriales consecutivos — forzando reconexión")
+                    self.conn.mark_dead(f"serial error: {self._serial_read_errors} consecutivos: {e}")
+                    self._serial_read_errors = 0
+                time.sleep(0.5)
             except Exception as e:
                 print(f"[READ_LOOP-ERROR] {type(e).__name__}: {e}", flush=True)
                 logger.error("Error en read_loop: %s — marking connection dead", e, exc_info=True)

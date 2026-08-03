@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   TouchableOpacity,
   Text,
   StatusBar,
@@ -13,16 +13,12 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Joystick } from '../components/Joystick';
+import { DualJoystick } from '../components/DualJoystick';
 import { useDrone } from '../context/DroneContext';
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
 import { getApiUrl, setHostIp } from '../config';
 import { getStoredIp } from '../utils/ipConfig';
 import { IpConfigModal } from '../components/IpConfigModal';
-
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const JOYSTICK_SIZE = SCREEN_WIDTH * 0.18;
-const PANEL_WIDTH = SCREEN_WIDTH * 0.72;
 
 const BG = '#0A0D12';
 const AMBER = '#FF8800';
@@ -65,6 +61,11 @@ export const DroneControlScreen: React.FC = () => {
   const { telemetry, connected, demoMode, armDrone, disarmDrone, setJoystick, sendCommand, forceReconnect, pushError, maxAltitude, setMaxAltitude, maxSpeed, setMaxSpeed } =
     useDrone();
   const insets = useSafeAreaInsets();
+  const { width: winW, height: winH } = useWindowDimensions();
+  const isLandscape = winW > winH;
+  const refDim = Math.min(winW, winH);
+  const joySize = isLandscape ? refDim * 0.36 : refDim * 0.18;
+  const panelWidth = winW * 0.72;
 
   const deviceLoc = useDeviceLocation();
 
@@ -130,7 +131,7 @@ export const DroneControlScreen: React.FC = () => {
 
   // animations
   const batteryBlink = useRef(new Animated.Value(1)).current;
-  const panelX = useRef(new Animated.Value(-PANEL_WIDTH)).current;
+  const panelX = useRef(new Animated.Value(-winW * 0.72)).current;
   const backdropOp = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -168,7 +169,7 @@ export const DroneControlScreen: React.FC = () => {
 
   const closePanel = () => {
     Animated.parallel([
-      Animated.spring(panelX, { toValue: -PANEL_WIDTH, useNativeDriver: true, tension: 65, friction: 11 }),
+      Animated.spring(panelX, { toValue: -panelWidth, useNativeDriver: true, tension: 65, friction: 11 }),
       Animated.timing(backdropOp, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start(() => setPanelOpen(false));
   };
@@ -263,197 +264,338 @@ export const DroneControlScreen: React.FC = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={BG} />
 
-      {/* ── HEADER ── */}
-      <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
-        <TouchableOpacity style={styles.headerLeft} onPress={openPanel} activeOpacity={0.7}>
-          <Text style={styles.logo}>GCS</Text>
-          <Text style={styles.logoSub}>v1.0</Text>
-        </TouchableOpacity>
-        <View style={styles.headerRight}>
-          <TouchableOpacity onPress={() => setIpModalVisible(true)} activeOpacity={0.6} style={styles.ipBtn}>
-            <Text style={styles.ipBtnIcon}>⚙</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTime}>{new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</Text>
-          <TouchableOpacity
-            style={[styles.headerArmBtn, telemetry?.armed ? styles.headerArmBtnArmed : { borderColor: AMBER + '60' }]}
-            onPress={handleArmToggle}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.headerArmDot, { backgroundColor: telemetry?.armed ? RED : AMBER }]} />
-            <Text style={[styles.headerArmText, { color: telemetry?.armed ? RED : AMBER, textShadowColor: telemetry?.armed ? RED : AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: telemetry?.armed ? 10 : 4 }]}>
-              {telemetry?.armed ? 'ARM' : 'STBY'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* ── CAMERA + METRICS OVERLAY ── */}
-      <View style={styles.cameraSection}>
-        <View style={styles.cameraContainer}>
-          {cameraState === 'loading' ? (
-            <View style={styles.cameraOff}>
-              <Text style={styles.cameraOffIcon}>CAM</Text>
-              <Text style={styles.cameraConnecting}>CONECTANDO…</Text>
-            </View>
-          ) : cameraState === 'connected' ? (
-            <WebView
-              ref={webViewRef}
-              key={cameraKeyRef.current}
-              source={{ uri: `${getApiUrl()}/api/camera/view` }}
-              style={styles.cameraFeed}
-              scrollEnabled={false}
-              bounces={false}
-              javaScriptEnabled={true}
-              mediaPlaybackRequiresUserAction={false}
-              allowsInlineMediaPlayback={true}
-              onError={() => { setCameraState('failed'); pushError('CAM_ERROR', 'Error cargando feed de cámara', 'error'); }}
-              onHttpError={() => { setCameraState('failed'); pushError('CAM_HTTP_ERROR', 'Error HTTP en feed de cámara', 'error'); }}
-              onLoad={() => {}}
-              renderError={() => null}
-            />
-          ) : (
-            <View style={styles.cameraOff}>
-              <Text style={styles.cameraOffIcon}>CAM</Text>
+      {!isLandscape && (
+        <>
+          {/* ── HEADER ── */}
+          <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
+            <TouchableOpacity style={styles.headerLeft} onPress={openPanel} activeOpacity={0.7}>
+              <Text style={styles.logo}>GCS</Text>
+              <Text style={styles.logoSub}>v1.0</Text>
+            </TouchableOpacity>
+            <View style={styles.headerRight}>
+              <TouchableOpacity onPress={() => setIpModalVisible(true)} activeOpacity={0.6} style={styles.ipBtn}>
+                <Text style={styles.ipBtnIcon}>⚙</Text>
+              </TouchableOpacity>
+              <Text style={styles.headerTime}>{new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</Text>
               <TouchableOpacity
-                style={styles.retryBtn}
-                onPress={() => {
-                  setCameraState('loading');
-                  fetch(`${getApiUrl()}/api/camera/status`)
-                    .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
-                    .then(data => {
-                      if (data.running && data.has_frame) {
-                        setCameraState('connected');
-                        cameraKeyRef.current++;
-                        pushError('CAM_OK', 'Cámara conectada', 'info');
-                      } else {
-                        setCameraState('failed');
-                        pushError('CAM_NOT_CONNECTED', 'No hay cámara conectada — verifica cable USB y drivers', 'error');
-                      }
-                    })
-                    .catch(() => { setCameraState('failed'); pushError('CAM_NETWORK', 'Red no disponible para cámara', 'error'); });
-                }}
+                style={[styles.headerArmBtn, telemetry?.armed ? styles.headerArmBtnArmed : { borderColor: AMBER + '60' }]}
+                onPress={handleArmToggle}
                 activeOpacity={0.7}
               >
-                <Text style={styles.retryBtnText}>REINTENTAR</Text>
+                <View style={[styles.headerArmDot, { backgroundColor: telemetry?.armed ? RED : AMBER }]} />
+                <Text style={[styles.headerArmText, { color: telemetry?.armed ? RED : AMBER, textShadowColor: telemetry?.armed ? RED : AMBER, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: telemetry?.armed ? 10 : 4 }]}>
+                  {telemetry?.armed ? 'ARM' : 'STBY'}
+                </Text>
               </TouchableOpacity>
             </View>
-          )}
-          {cameraState === 'connected' && (
-            <>
-              {/* Single row of essential chips */}
-              <View style={styles.metricChips}>
-                <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
-                  <Text style={styles.chipLabel}>CAM</Text>
-                  <Text style={styles.chipValue}>OK</Text>
+          </View>
+
+          {/* ── CAMERA + METRICS OVERLAY ── */}
+          <View style={[styles.cameraSection, { height: winH * 0.35 }]}>
+            <View style={styles.cameraContainer}>
+              {cameraState === 'loading' ? (
+                <View style={styles.cameraOff}>
+                  <Text style={styles.cameraOffIcon}>CAM</Text>
+                  <Text style={styles.cameraConnecting}>CONECTANDO…</Text>
                 </View>
-                <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
-                  <Text style={styles.chipLabel}>SPD</Text>
-                  <Text style={styles.chipValue}>{spd.toFixed(1)}</Text>
+              ) : cameraState === 'connected' ? (
+                <WebView
+                  ref={webViewRef}
+                  key={cameraKeyRef.current}
+                  source={{ uri: `${getApiUrl()}/api/camera/view` }}
+                  style={styles.cameraFeed}
+                  scrollEnabled={false}
+                  bounces={false}
+                  javaScriptEnabled={true}
+                  mediaPlaybackRequiresUserAction={false}
+                  allowsInlineMediaPlayback={true}
+                  onError={() => { setCameraState('failed'); pushError('CAM_ERROR', 'Error cargando feed de cámara', 'error'); }}
+                  onHttpError={() => { setCameraState('failed'); pushError('CAM_HTTP_ERROR', 'Error HTTP en feed de cámara', 'error'); }}
+                  onLoad={() => {}}
+                  renderError={() => null}
+                />
+              ) : (
+                <View style={styles.cameraOff}>
+                  <Text style={styles.cameraOffIcon}>CAM</Text>
+                  <TouchableOpacity
+                    style={styles.retryBtn}
+                    onPress={() => {
+                      setCameraState('loading');
+                      fetch(`${getApiUrl()}/api/camera/status`)
+                        .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
+                        .then(data => {
+                          if (data.running && data.has_frame) {
+                            setCameraState('connected');
+                            cameraKeyRef.current++;
+                            pushError('CAM_OK', 'Cámara conectada', 'info');
+                          } else {
+                            setCameraState('failed');
+                            pushError('CAM_NOT_CONNECTED', 'No hay cámara conectada — verifica cable USB y drivers', 'error');
+                          }
+                        })
+                        .catch(() => { setCameraState('failed'); pushError('CAM_NETWORK', 'Red no disponible para cámara', 'error'); });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.retryBtnText}>REINTENTAR</Text>
+                  </TouchableOpacity>
                 </View>
-                <View style={[styles.chip, { borderColor: altColor + 'AA' }]}>
-                  <Text style={styles.chipLabel}>ALT</Text>
-                  <Text style={[styles.chipValue, altLimitReached && { color: RED }]}>
-                    {alt.toFixed(1)}{altLimitReached ? ' MAX' : ''}
-                  </Text>
+              )}
+              {cameraState === 'connected' && (
+                <View style={styles.metricChips}>
+                  <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+                    <Text style={styles.chipLabel}>CAM</Text>
+                    <Text style={styles.chipValue}>OK</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+                    <Text style={styles.chipLabel}>SPD</Text>
+                    <Text style={styles.chipValue}>{spd.toFixed(1)}</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: altColor + 'AA' }]}>
+                    <Text style={styles.chipLabel}>ALT</Text>
+                    <Text style={[styles.chipValue, altLimitReached && { color: RED }]}>
+                      {alt.toFixed(1)}{altLimitReached ? ' MAX' : ''}
+                    </Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: batColor + 'AA' }]}>
+                    <Text style={styles.chipLabel}>BAT</Text>
+                    <Text style={styles.chipValue}>{bat.toFixed(0)}</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+                    <Text style={styles.chipLabel}>YAW</Text>
+                    <Text style={styles.chipValue}>{yaw.toFixed(0)}</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: (vs >= 0 ? AMBER : RED) + 'AA' }]}>
+                    <Text style={styles.chipLabel}>V/S</Text>
+                    <Text style={styles.chipValue}>{vs.toFixed(1)}</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: connected ? AMBER + 'AA' : RED + 'AA' }]}>
+                    <Text style={styles.chipLabel}>LINK</Text>
+                    <Text style={styles.chipValue}>{connected ? 'OK' : 'NO'}</Text>
+                  </View>
                 </View>
-                <View style={[styles.chip, { borderColor: batColor + 'AA' }]}>
-                  <Text style={styles.chipLabel}>BAT</Text>
-                  <Text style={styles.chipValue}>{bat.toFixed(0)}</Text>
+              )}
+            </View>
+          </View>
+        </>
+      )}
+
+      {isLandscape && (
+        <View style={styles.landscapeBody}>
+          {/* ── CAMARA FULL SCREEN ── */}
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <View style={styles.cameraContainer}>
+              {cameraState === 'loading' ? (
+                <View style={styles.cameraOff}>
+                  <Text style={styles.cameraOffIcon}>CAM</Text>
+                  <Text style={styles.cameraConnecting}>CONECTANDO…</Text>
                 </View>
-                <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
-                  <Text style={styles.chipLabel}>YAW</Text>
-                  <Text style={styles.chipValue}>{yaw.toFixed(0)}</Text>
+              ) : cameraState === 'connected' ? (
+                <WebView
+                  ref={webViewRef}
+                  key={cameraKeyRef.current}
+                  source={{ uri: `${getApiUrl()}/api/camera/view` }}
+                  style={styles.cameraFeed}
+                  scrollEnabled={false}
+                  bounces={false}
+                  javaScriptEnabled={true}
+                  mediaPlaybackRequiresUserAction={false}
+                  allowsInlineMediaPlayback={true}
+                  onError={() => { setCameraState('failed'); pushError('CAM_ERROR', 'Error cargando feed de cámara', 'error'); }}
+                  onHttpError={() => { setCameraState('failed'); pushError('CAM_HTTP_ERROR', 'Error HTTP en feed de cámara', 'error'); }}
+                  onLoad={() => {}}
+                  renderError={() => null}
+                />
+              ) : (
+                <View style={styles.cameraOff}>
+                  <Text style={styles.cameraOffIcon}>CAM</Text>
+                  <TouchableOpacity
+                    style={styles.retryBtn}
+                    onPress={() => {
+                      setCameraState('loading');
+                      fetch(`${getApiUrl()}/api/camera/status`)
+                        .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
+                        .then(data => {
+                          if (data.running && data.has_frame) {
+                            setCameraState('connected');
+                            cameraKeyRef.current++;
+                            pushError('CAM_OK', 'Cámara conectada', 'info');
+                          } else {
+                            setCameraState('failed');
+                            pushError('CAM_NOT_CONNECTED', 'No hay cámara conectada — verifica cable USB y drivers', 'error');
+                          }
+                        })
+                        .catch(() => { setCameraState('failed'); pushError('CAM_NETWORK', 'Red no disponible para cámara', 'error'); });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.retryBtnText}>REINTENTAR</Text>
+                  </TouchableOpacity>
                 </View>
-                <View style={[styles.chip, { borderColor: (vs >= 0 ? AMBER : RED) + 'AA' }]}>
-                  <Text style={styles.chipLabel}>V/S</Text>
-                  <Text style={styles.chipValue}>{vs.toFixed(1)}</Text>
+              )}
+              {cameraState === 'connected' && (
+                <View style={[styles.metricChipsLandscape]}>
+                  <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+                    <Text style={styles.chipLabel}>CAM</Text>
+                    <Text style={styles.chipValue}>OK</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+                    <Text style={styles.chipLabel}>SPD</Text>
+                    <Text style={styles.chipValue}>{spd.toFixed(1)}</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: altColor + 'AA' }]}>
+                    <Text style={styles.chipLabel}>ALT</Text>
+                    <Text style={[styles.chipValue, altLimitReached && { color: RED }]}>
+                      {alt.toFixed(1)}{altLimitReached ? ' MAX' : ''}
+                    </Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: batColor + 'AA' }]}>
+                    <Text style={styles.chipLabel}>BAT</Text>
+                    <Text style={styles.chipValue}>{bat.toFixed(0)}</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: AMBER + 'AA' }]}>
+                    <Text style={styles.chipLabel}>YAW</Text>
+                    <Text style={styles.chipValue}>{yaw.toFixed(0)}</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: (vs >= 0 ? AMBER : RED) + 'AA' }]}>
+                    <Text style={styles.chipLabel}>V/S</Text>
+                    <Text style={styles.chipValue}>{vs.toFixed(1)}</Text>
+                  </View>
+                  <View style={[styles.chip, { borderColor: connected ? AMBER + 'AA' : RED + 'AA' }]}>
+                    <Text style={styles.chipLabel}>LINK</Text>
+                    <Text style={styles.chipValue}>{connected ? 'OK' : 'NO'}</Text>
+                  </View>
                 </View>
-                <View style={[styles.chip, { borderColor: connected ? AMBER + 'AA' : RED + 'AA' }]}>
-                  <Text style={styles.chipLabel}>LINK</Text>
-                  <Text style={styles.chipValue}>{connected ? 'OK' : 'NO'}</Text>
+              )}
+            </View>
+          </View>
+
+          {/* ── HEADER OVERLAY ── */}
+          <View style={[styles.headerLandscape, { paddingTop: insets.top + 2 }]}>
+            <TouchableOpacity onPress={openPanel} activeOpacity={0.7}>
+              <Text style={styles.logo}>GCS</Text>
+            </TouchableOpacity>
+            <Text style={styles.headerTime}>{new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</Text>
+            <TouchableOpacity
+              style={[styles.headerArmBtn, telemetry?.armed ? styles.headerArmBtnArmed : { borderColor: AMBER + '60' }]}
+              onPress={handleArmToggle}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.headerArmDot, { backgroundColor: telemetry?.armed ? RED : AMBER }]} />
+              <Text style={[styles.headerArmText, { color: telemetry?.armed ? RED : AMBER }]}>
+                {telemetry?.armed ? 'ARM' : 'STBY'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* ── JOYSTICKS LANDSCAPE ── */}
+          <View style={styles.joystickSectionLandscape}>
+            <DualJoystick
+              onLeftMove={handleLeftJoystick}
+              onRightMove={handleRightJoystick}
+              leftSize={joySize}
+              rightSize={joySize}
+              leftColor={AMBER}
+              rightColor="#3B82F6"
+              leftResetToBottom={leftJoystickReset}
+            />
+          </View>
+
+          {/* ── BOTTOM LANDSCAPE ── */}
+          <View style={styles.bottomBarLandscape}>
+            <View style={styles.bottomLeft}>
+              <View style={[styles.statusDot, { backgroundColor: connected ? AMBER : RED }]} />
+              <Text style={styles.bottomText}>{connected ? 'CTD' : 'OFF'}</Text>
+            </View>
+            <Text style={[styles.modeText, { color: meta.color, textShadowColor: meta.color, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 }]}>
+              {meta.icon} {telemetry?.mode ?? '—'}
+            </Text>
+            <View style={styles.bottomRight}>
+              <View style={[styles.armDot, { backgroundColor: telemetry?.armed ? RED : LABEL }]} />
+              <Text style={[styles.bottomText, { color: telemetry?.armed ? RED : LABEL }]}>{telemetry?.armed ? 'ARM' : 'SBY'}</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {!isLandscape && (
+        <>
+          {/* ── JOYSTICKS ── */}
+          <View style={styles.joystickSection}>
+            <DualJoystick
+              onLeftMove={handleLeftJoystick}
+              onRightMove={handleRightJoystick}
+              leftSize={joySize}
+              rightSize={joySize}
+              leftColor={AMBER}
+              rightColor="#3B82F6"
+              leftResetToBottom={leftJoystickReset}
+            />
+            <View style={styles.pwmContainer}>
+              <View style={styles.pwmCol}>
+                <Text style={styles.joystickLabel}>THR / YAW</Text>
+                <View style={styles.pwmRow}>
+                  <View style={[styles.pwmChip, { borderColor: BORDER }]}>
+                    <Text style={styles.pwmLabel}>THR</Text>
+                    <Text style={[styles.pwmValue, {
+                      color: pwmDisplay.thr >= 1800 ? RED : pwmDisplay.thr >= 1500 ? AMBER : pwmDisplay.thr >= 1200 ? YELLOW : LABEL,
+                    }]}>
+                      {pwmDisplay.thr}
+                    </Text>
+                  </View>
+                  <View style={[styles.pwmChip, { borderColor: BORDER }]}>
+                    <Text style={styles.pwmLabel}>YAW</Text>
+                    <Text style={[styles.pwmValue, { color: pwmDisplay.yaw !== 1500 ? YELLOW : LABEL }]}>
+                      {pwmDisplay.yaw}
+                    </Text>
+                  </View>
                 </View>
               </View>
-            </>
-          )}
-        </View>
-      </View>
+              <View style={styles.pwmCol}>
+                <Text style={styles.joystickLabel}>PITCH / ROLL</Text>
+                <View style={styles.pwmRow}>
+                  <View style={[styles.pwmChip, { borderColor: BORDER }]}>
+                    <Text style={styles.pwmLabel}>PIT</Text>
+                    <Text style={[styles.pwmValue, { color: pwmDisplay.pitch !== 1500 ? '#3B82F6' : LABEL }]}>
+                      {pwmDisplay.pitch}
+                    </Text>
+                  </View>
+                  <View style={[styles.pwmChip, { borderColor: BORDER }]}>
+                    <Text style={styles.pwmLabel}>RLL</Text>
+                    <Text style={[styles.pwmValue, { color: pwmDisplay.roll !== 1500 ? '#3B82F6' : LABEL }]}>
+                      {pwmDisplay.roll}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </View>
 
-      {/* ── JOYSTICKS ── */}
-      <View style={styles.joystickSection}>
-        <View style={styles.joystickCol}>
-          <Text style={styles.joystickLabel}>THR / YAW</Text>
-          <Joystick
-            onMove={handleLeftJoystick}
-            size={JOYSTICK_SIZE}
-            mode="mode2"
-            color={AMBER}
-            resetToBottom={leftJoystickReset}
-          />
-          <View style={styles.pwmRow}>
-            <View style={[styles.pwmChip, { borderColor: BORDER }]}>
-              <Text style={styles.pwmLabel}>THR</Text>
-              <Text style={[styles.pwmValue, {
-                color: pwmDisplay.thr >= 1800 ? RED : pwmDisplay.thr >= 1500 ? AMBER : pwmDisplay.thr >= 1200 ? YELLOW : LABEL,
-              }]}>
-                {pwmDisplay.thr}
+          {/* ── BOTTOM STATUS ── */}
+          <View style={styles.bottomBar}>
+            <View style={styles.bottomLeft}>
+              <View style={[styles.statusDot, { backgroundColor: connected ? AMBER : RED }]} />
+              <Text style={styles.bottomText}>
+                {connected ? 'CONECTADO' : 'DESCONECTADO'}
               </Text>
             </View>
-            <View style={[styles.pwmChip, { borderColor: BORDER }]}>
-              <Text style={styles.pwmLabel}>YAW</Text>
-              <Text style={[styles.pwmValue, { color: pwmDisplay.yaw !== 1500 ? YELLOW : LABEL }]}>
-                {pwmDisplay.yaw}
+            <Text style={[styles.modeText, { color: meta.color, textShadowColor: meta.color, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 }]}>
+              {meta.icon} {telemetry?.mode ?? '—'}
+            </Text>
+            <View style={styles.bottomRight}>
+              <View style={[styles.armDot, { backgroundColor: telemetry?.armed ? RED : LABEL }]} />
+              <Text style={[styles.bottomText, { color: telemetry?.armed ? RED : LABEL }]}>
+                {telemetry?.armed ? 'ARMADO' : 'STAND-BY'}
               </Text>
             </View>
+            {demoMode && (
+              <View style={styles.demoBadge}>
+                <Text style={styles.demoBadgeText}>DEMO</Text>
+              </View>
+            )}
           </View>
-        </View>
-        <View style={styles.joystickCol}>
-          <Text style={styles.joystickLabel}>PITCH / ROLL</Text>
-          <Joystick
-            onMove={handleRightJoystick}
-            size={JOYSTICK_SIZE}
-            mode="both"
-            color="#3B82F6"
-          />
-          <View style={styles.pwmRow}>
-            <View style={[styles.pwmChip, { borderColor: BORDER }]}>
-              <Text style={styles.pwmLabel}>PIT</Text>
-              <Text style={[styles.pwmValue, { color: pwmDisplay.pitch !== 1500 ? '#3B82F6' : LABEL }]}>
-                {pwmDisplay.pitch}
-              </Text>
-            </View>
-            <View style={[styles.pwmChip, { borderColor: BORDER }]}>
-              <Text style={styles.pwmLabel}>RLL</Text>
-              <Text style={[styles.pwmValue, { color: pwmDisplay.roll !== 1500 ? '#3B82F6' : LABEL }]}>
-                {pwmDisplay.roll}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      {/* ── BOTTOM STATUS ── */}
-      <View style={styles.bottomBar}>
-        <View style={styles.bottomLeft}>
-          <View style={[styles.statusDot, { backgroundColor: connected ? AMBER : RED }]} />
-          <Text style={styles.bottomText}>
-            {connected ? 'CONECTADO' : 'DESCONECTADO'}
-          </Text>
-        </View>
-        <Text style={[styles.modeText, { color: meta.color, textShadowColor: meta.color, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 }]}>
-          {meta.icon} {telemetry?.mode ?? '—'}
-        </Text>
-        <View style={styles.bottomRight}>
-          <View style={[styles.armDot, { backgroundColor: telemetry?.armed ? RED : LABEL }]} />
-          <Text style={[styles.bottomText, { color: telemetry?.armed ? RED : LABEL }]}>
-            {telemetry?.armed ? 'ARMADO' : 'STAND-BY'}
-          </Text>
-        </View>
-        {demoMode && (
-          <View style={styles.demoBadge}>
-            <Text style={styles.demoBadgeText}>DEMO</Text>
-          </View>
-        )}
-      </View>
+        </>
+      )}
 
       {/* ── SIDE PANEL ── */}
       {panelOpen && (
@@ -462,7 +604,7 @@ export const DroneControlScreen: React.FC = () => {
         </Animated.View>
       )}
 
-      <Animated.View style={[styles.sidePanel, { transform: [{ translateX: panelX }] }]}>
+      <Animated.View style={[styles.sidePanel, { width: panelWidth, transform: [{ translateX: panelX }] }]}>
         <View style={[styles.panelHeader, { paddingTop: insets.top + 12 }]}>
           <View>
             <Text style={styles.panelTitle}>GCS CONTROL</Text>
@@ -728,7 +870,7 @@ const styles = StyleSheet.create({
   headerArmText: { fontSize: 8, fontWeight: '900', letterSpacing: 1, fontFamily: 'monospace' },
 
   // ── CAMERA ──
-  cameraSection: { height: SCREEN_HEIGHT * 0.35, borderWidth: 1.5, borderColor: GLASS_BORDER, borderRadius: 14, marginHorizontal: 2, overflow: 'hidden' },
+  cameraSection: { borderWidth: 1.5, borderColor: GLASS_BORDER, borderRadius: 14, marginHorizontal: 2, overflow: 'hidden' },
   cameraContainer: { flex: 1, backgroundColor: '#000', position: 'relative' },
   cameraFeed: { width: '100%', height: '100%', backgroundColor: 'transparent' },
   cameraOff: {
@@ -760,8 +902,8 @@ const styles = StyleSheet.create({
 
   // ── JOYSTICKS ──
   joystickSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: 'column',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 4,
@@ -769,6 +911,8 @@ const styles = StyleSheet.create({
   },
   joystickCol: { alignItems: 'center', gap: 3 },
   joystickLabel: { color: LABEL, fontSize: 7, fontWeight: '700', letterSpacing: 1.2 },
+  pwmContainer: { flexDirection: 'row', marginTop: 4, gap: 20 },
+  pwmCol: { alignItems: 'center', gap: 2 },
   pwmRow: { flexDirection: 'row', gap: 4 },
   pwmChip: {
     alignItems: 'center',
@@ -806,7 +950,7 @@ const styles = StyleSheet.create({
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 20 },
   sidePanel: {
     position: 'absolute', top: 0, bottom: 0, left: 0,
-    width: PANEL_WIDTH, backgroundColor: 'rgba(10,15,25,0.92)',
+    backgroundColor: 'rgba(10,15,25,0.92)',
     borderRightWidth: 1.5, borderRightColor: 'rgba(255,136,0,0.6)', shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 0, zIndex: 30,
   },
   panelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingTop: 18, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: GLASS_BORDER },
@@ -885,4 +1029,34 @@ const styles = StyleSheet.create({
     shadowColor: AMBER, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 8,
   },
   toastText: { color: '#fff', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+
+  // ── Landscape-specific ──
+  metricChipsLandscape: {
+    position: 'absolute', top: 30, left: 4, right: 4,
+    flexDirection: 'row', justifyContent: 'center', gap: 3,
+  },
+  landscapeBody: {
+    flex: 1,
+    position: 'relative',
+  },
+  headerLandscape: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 12, paddingBottom: 4,
+    backgroundColor: 'rgba(10,13,18,0.5)',
+    zIndex: 10,
+  },
+  joystickSectionLandscape: {
+    position: 'absolute', bottom: 28, left: 0, right: 0,
+    flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
+    paddingVertical: 0,
+    zIndex: 10,
+  },
+  bottomBarLandscape: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: 'rgba(10,13,18,0.5)',
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    paddingVertical: 3,
+    zIndex: 10,
+  },
 });

@@ -102,43 +102,35 @@ export const Joystick: React.FC<JoystickProps> = ({
     }
   }, [resetToBottom]);
 
+  const touchPos = useRef({ x: 0, y: 0 });
+
   const handleTouchStart = useCallback((e: GestureResponderEvent) => {
-    if (touchId.current !== null) return;
-    const touch = e.nativeEvent.touches[0] || e.nativeEvent.changedTouches[0];
+    const touch = e.nativeEvent.touches?.[0] ?? e.nativeEvent.changedTouches?.[0];
     if (!touch) return;
     touchId.current = touch.identifier;
+    touchPos.current = { x: touch.pageX, y: touch.pageY };
 
     viewRef.current?.measureInWindow((wx, wy, w, h) => {
       const cx = wx + w / 2;
       const cy = wy + h / 2;
-      const px = touch.pageX - cx;
-      const py = touch.pageY - cy;
-      normalize(px, py);
+      normalize(touchPos.current.x - cx, touchPos.current.y - cy);
     });
   }, [normalize]);
 
   const handleTouchMove = useCallback((e: GestureResponderEvent) => {
-    const touches: any[] = [];
-    if (e.nativeEvent.touches) touches.push(...e.nativeEvent.touches);
-    if (e.nativeEvent.changedTouches) touches.push(...e.nativeEvent.changedTouches);
-    const touch = touches.find(t => t.identifier === touchId.current);
+    const touch = e.nativeEvent.changedTouches?.[0];
     if (!touch) return;
+    touchId.current = touch.identifier;
+    touchPos.current = { x: touch.pageX, y: touch.pageY };
 
     viewRef.current?.measureInWindow((wx, wy, w, h) => {
       const cx = wx + w / 2;
       const cy = wy + h / 2;
-      const px = touch.pageX - cx;
-      const py = touch.pageY - cy;
-      normalize(px, py);
+      normalize(touchPos.current.x - cx, touchPos.current.y - cy);
     });
   }, [normalize]);
 
-  const handleTouchEnd = useCallback((e: GestureResponderEvent) => {
-    const touches: any[] = [];
-    if (e.nativeEvent.touches) touches.push(...e.nativeEvent.touches);
-    if (e.nativeEvent.changedTouches) touches.push(...e.nativeEvent.changedTouches);
-    const stillActive = touches.some(t => t.identifier === touchId.current);
-    if (stillActive) return;
+  const handleTouchEnd = useCallback(() => {
     touchId.current = null;
     resetStick();
   }, [resetStick]);
