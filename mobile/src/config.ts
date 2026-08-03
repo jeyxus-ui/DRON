@@ -11,6 +11,12 @@ export const getHostIp = (): string => currentHost;
 export const setHostIp = (ip: string): void => { currentHost = ip; };
 export const resetHostIp = (): void => { currentHost = DEFAULT_HOST; };
 
+const DEFAULT_MAX_ALT = 100;
+let currentMaxAlt: number = DEFAULT_MAX_ALT;
+
+export const getMaxAltitude = (): number => currentMaxAlt;
+export const setMaxAltitude = (alt: number): void => { currentMaxAlt = alt; };
+
 export const getApiUrl = (): string => `http://${currentHost}:8000`;
 export const getWsUrl = (): string => `ws://${currentHost}:8000/ws/telemetry`;
 

@@ -60,6 +60,14 @@ class DroneCommands:
         if not self.conn or not self.conn.master:
             raise ConnectionError("No hay conexión con Pixhawk — verifica cable USB / puerto serie")
 
+        current_mode = getattr(self.telemetry, 'data', {}).get('mode', 'UNKNOWN')
+        if current_mode not in ("STABILIZE", "ACRO", "ALT_HOLD"):
+            logger.info(f"Modo actual: {current_mode}, cambiando a STABILIZE para armar")
+            try:
+                self.set_mode("STABILIZE")
+            except Exception as e:
+                logger.warning(f"No se pudo cambiar a STABILIZE: {e}")
+
         if force and not self.conn._ekf_ready.is_set():
             logger.info("⏳ Esperando EKF alignment antes de enviar ARM...")
             if self.conn._ekf_ready.wait(timeout=30):
@@ -110,8 +118,11 @@ class DroneCommands:
         raise ConnectionError("Pixhawk no respondió al comando ARM tras %d intentos — verifica conexión MAVLink y heartbeat" % max_attempts)
 
     def _send_disarm_cmd(self, force=False):
-        """Enviar comando DISARM via command_long. force=True usa param2=21196 (magic_force_arm_disarm_value en ArduPilot)."""
+        """Enviar comando DISARM via command_long. force=True usa param2=21196 (magic_force_arm_disarm_value en ArduPilot).
+        Quien llama debe tener self.conn._lock."""
         master = self.conn.master
+        if not master:
+            raise ConnectionError("No hay conexión con Pixhawk")
         master.mav.command_long_send(
             master.target_system,
             master.target_component,
@@ -403,6 +414,31 @@ class DroneCommands:
         """Detener motores inmediatamente (PELIGROSO)."""
         logger.critical("💀 MOTOR KILL — Desarmando forzado")
         return self.disarm(force=True)
+
+    def test_motor(self, motor_id: int, throttle_pct: float = 10.0, duration_s: float = 1.5, even_if_armed: bool = False):
+        """Test individual motor at given throttle percentage for given duration."""
+        logger.info(f"🔧 MOTOR TEST — motor {motor_id} @ {throttle_pct}% for {duration_s}s (even_if_armed={even_if_armed})")
+        throttle_type = 3 if even_if_armed else 1
+        with self.conn._lock:
+            master = self.conn.master
+            if not master:
+                raise ConnectionError("No hay conexión con Pixhawk")
+            master.mav.command_long_send(
+                master.target_system,
+                master.target_component,
+                mavutil.mavlink.MAV_CMD_DO_MOTOR_TEST,
+                0,
+                motor_id,
+                throttle_type,
+                int(throttle_pct),
+                int(duration_s),
+                1,
+                0,
+                0,
+            )
+        time.sleep(duration_s + 0.5)
+        logger.info(f"✅ Motor {motor_id} test complete")
+        return True
 
     # ── Utilidades ─────────────────────────────────────────────────────────────
 

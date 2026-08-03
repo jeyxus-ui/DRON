@@ -116,9 +116,14 @@ Si se usa `uvicorn backend.main:app` directamente, NO se configuran los pings.
 
 ## Estado Actual
 
-- **Última sesión:** Fix 26-27: Heartbeat health check + reconexión robusta (App↔Backend↔Pixhawk)
-- **Fix 26 (Backend):** `last_heartbeat` tracking, `get_connection_health()`, auto-reconnect con backoff 2s→30s, detección de heartbeat stale
-- **Fix 27 (Mobile):** `connection_alert` handler, exponential backoff reconexión (1s→30s), delay demo mode (3 intentos), `connectionHealth`/`mavlinkOnline` en context
+- **Última sesión:** Merge rama `mango` + diagnóstico motores (sesión 2026-07-28)
+- **Merge mango → burron-errores:** 8 commits, 62 archivos, ~5600 líneas agregadas. Conflictos resueltos en `commands.py`, `controller.py`, `rc_override.py`, `rest.py`, `ipConfig.ts`
+- **Fix STABILIZE:** `arm()` cambia automáticamente a STABILIZE antes de armar
+- **`test_motor()`:** Método añadido a `commands.py`
+- **`MOT_SPIN_ARM`:** Subido de 0.0 → 0.07 → 0.15
+- **Motores:** Los 4 giraron correctamente en sesiones previas. El diagnóstico previo de "solo 2 motores" era incorrecto.
+- **Cambios locales sin commit:** 10 archivos modificados, 3 untracked, 2 stashes
+- **RPi sin actualizar:** El servidor en la RPi no tiene el código del merge
 - **Comando backend recomendado:** `python -m backend.run` (incluye ws_ping_interval=15s)
 - **Manual fusionado:** `documentacion/MANUAL_TECNICO_FUSIONADO.docx`
 - **Estilo de redacción:** Formal académico

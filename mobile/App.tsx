@@ -19,17 +19,16 @@ const SCREENS = [
 
 export default function App() {
   const [activeIdx, setActiveIdx] = useState(0);
-
-  const ActiveScreen = SCREENS[activeIdx].component;
+  const ScreenComponent = SCREENS[activeIdx].component;
 
   return (
     <SafeAreaProvider>
       <DroneProvider>
         <View style={styles.root}>
           <ErrorHistoryModal />
-          <ActiveScreen />
-
-          {/* ── Tab bar de navegación ── */}
+          <View style={styles.screen}>
+            <ScreenComponent />
+          </View>
           <View style={styles.tabBar}>
             {SCREENS.map((s, i) => {
               const accent = s.accent;
@@ -59,6 +58,10 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root: {
+    flex:            1,
+    backgroundColor: '#050508',
+  },
+  screen: {
     flex:            1,
     backgroundColor: '#050508',
   },

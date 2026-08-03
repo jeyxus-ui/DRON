@@ -14,10 +14,13 @@ logger = logging.getLogger(__name__)
 
 class DroneTelemetry:
     """Clase para leer y almacenar telemetría del dron"""
-    
+
+    MAX_SERIAL_ERRORS = 50
+
     def __init__(self, connection, persist_interval: float = 5.0):
         self.conn = connection
-        
+        self._serial_read_errors = 0
+
         self.data = {
             'altitude': 0.0,
             'speed': 0.0,
@@ -67,10 +70,10 @@ class DroneTelemetry:
     # ============================================
 
     def _request_streams(self):
-        """Solicitar data streams al Pixhawk — espera conexión activa primero."""
+        """Solicitar streams con MAV_CMD_SET_MESSAGE_INTERVAL (ArduPilot 4.5+)."""
         logger.info("⏳ Esperando conexión para solicitar streams...")
 
-        for _ in range(40):  # hasta 20 segundos
+        for _ in range(40):
             if self.conn.is_connected():
                 break
             time.sleep(0.5)
@@ -82,22 +85,28 @@ class DroneTelemetry:
         try:
             master = self.conn.master
             target_sys = master.target_system
-            comps = [master.target_component] if master.target_component != 0 else [1, 0]
-            STREAMS = [
-                (mavutil.mavlink.MAV_DATA_STREAM_RAW_SENSORS, 2),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTENDED_STATUS, 2),
-                (mavutil.mavlink.MAV_DATA_STREAM_RC_CHANNELS, 2),
-                (mavutil.mavlink.MAV_DATA_STREAM_POSITION, 5),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA1, 5),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA2, 2),
-                (mavutil.mavlink.MAV_DATA_STREAM_EXTRA3, 1),
+            target_comp = master.target_component
+
+            MESSAGES = [
+                (mavutil.mavlink.MAVLINK_MSG_ID_BATTERY_STATUS, 500_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_GPS_RAW_INT, 200_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS, 500_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, 200_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_VFR_HUD, 200_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_HOME_POSITION, 1_000_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_EKF_STATUS_REPORT, 500_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 200_000),
+                (mavutil.mavlink.MAVLINK_MSG_ID_RC_CHANNELS, 200_000),
             ]
-            for comp in comps:
-                for stream_id, rate_hz in STREAMS:
-                    master.mav.request_data_stream_send(
-                        target_sys, comp, stream_id, rate_hz, 1,
-                    )
-            logger.info(f"✅ Streams solicitados al Pixhawk (comps={comps}, max=5 Hz)")
+
+            for msg_id, interval_us in MESSAGES:
+                master.mav.command_long_send(
+                    target_sys, target_comp,
+                    mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                    0, msg_id, interval_us, 0, 0, 0, 0, 0,
+                )
+
+            logger.info(f"✅ Streams configurados via MAV_CMD_SET_MESSAGE_INTERVAL (target_comp={target_comp})")
         except Exception as e:
             logger.error(f"❌ Error solicitando streams: {e}")
 
@@ -171,9 +180,10 @@ class DroneTelemetry:
                     time.sleep(0.01)
                     continue
 
-                msg = self.conn.recv_match(blocking=False)
+                msg = self.conn.recv_match(blocking=True, timeout=0.01)
                 
                 if msg:
+                    self._serial_read_errors = 0
                     # Track ANY message received
                     self.conn.update_msg_time()
                     mtype = msg.get_type()
@@ -213,6 +223,18 @@ class DroneTelemetry:
                 
                 time.sleep(0.01)  # 100 Hz
                 
+            except (OSError, IOError) as e:
+                self._serial_read_errors += 1
+                print(f"[READ_LOOP-SERIAL-ERROR] #{self._serial_read_errors}: {type(e).__name__}: {e}", flush=True)
+                logger.warning(
+                    "Error serial en read_loop (#%d/%d): %s",
+                    self._serial_read_errors, self.MAX_SERIAL_ERRORS, e
+                )
+                if self._serial_read_errors >= self.MAX_SERIAL_ERRORS:
+                    logger.error("Demasiados errores seriales consecutivos — forzando reconexión")
+                    self.conn.mark_dead(f"serial error: {self._serial_read_errors} consecutivos: {e}")
+                    self._serial_read_errors = 0
+                time.sleep(0.5)
             except Exception as e:
                 print(f"[READ_LOOP-ERROR] {type(e).__name__}: {e}", flush=True)
                 logger.error("Error en read_loop: %s — marking connection dead", e, exc_info=True)
@@ -224,7 +246,16 @@ class DroneTelemetry:
         msg_type = msg.get_type()
         
         try:
-            if msg_type == "VFR_HUD":
+            if msg_type == "STATUSTEXT":
+                severity = getattr(msg, 'severity', -1)
+                text = getattr(msg, 'text', '').rstrip('\x00').strip()
+                # Emergency-level messages
+                if severity <= 3:
+                    logger.warning(f"🛑 PIXHAWK STATUS [{severity}]: {text}")
+                else:
+                    logger.info(f"📋 PIXHAWK STATUS [{severity}]: {text}")
+            
+            elif msg_type == "VFR_HUD":
                 self.data['altitude'] = round(msg.alt, 2)
                 self.data['speed'] = round(msg.airspeed, 2)
                 self.data['climb_rate'] = round(msg.climb, 2)

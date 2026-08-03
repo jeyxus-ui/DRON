@@ -144,10 +144,10 @@ def _get_sensor_data():
                 'lidar_closest_distance': data.get('lidar', {}).get('closest_distance'),
                 'lidar_closest_angle': data.get('lidar', {}).get('closest_angle'),
                 'lidar_points': data.get('lidar', {}).get('points', 0),
-                'obstacle_ahead': sensor_manager.has_obstacle_ahead,
+                'obstacle_ahead': sensor_manager.has_obstacle_ahead(),
             }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Error obteniendo datos de sensores: %s", e)
     return {}
 
 
@@ -155,15 +155,14 @@ async def get_telemetry_data(mav_controller) -> dict:
     """Extrae telemetría del controlador MAVLink + sensores."""
     try:
         # Priorizar datos externos del bridge raspberry/
-        try:
-            from backend.api.rest import _external_mavlink_data, _external_update_time
-            now = time.time()
-            if _external_update_time > 0 and now - _external_update_time < 30 and _external_mavlink_data:
-                tel = dict(_external_mavlink_data)
-                tel.update(_get_sensor_data())
-                return tel
-        except Exception:
-            pass
+        from backend.api.rest import _external_mavlink_data, _external_update_time
+        now = time.time()
+        if _external_update_time > 0 and now - _external_update_time < 30 and _external_mavlink_data:
+            tel = dict(_external_mavlink_data)
+            tel.update(_get_sensor_data())
+            return tel
+    except Exception as e:
+        logger.debug("Error obteniendo datos de sensores: %s", e)
 
         telemetry = getattr(mav_controller, "telemetry", None)
         sensors = _get_sensor_data()
@@ -233,7 +232,10 @@ async def process_command(command: dict, mav_controller) -> dict:
     cmd_type = command.get("type", "")
     params   = command.get("params", {})
 
-    logger.info(f"Procesando comando: {cmd_type} | params: {params}")
+    if cmd_type != "RC_CONTROL":
+        logger.info(f"Procesando comando: {cmd_type} | params: {params}")
+    else:
+        logger.debug(f"Procesando comando: {cmd_type} | params: {params}")
 
     if not mav_controller:
         return {"success": False, "message": "No hay dron conectado — el backend no pudo conectar con el Pixhawk"}
@@ -549,8 +551,8 @@ async def websocket_endpoint(websocket: WebSocket):
             "mavlink": health,
             "timestamp": datetime.utcnow().isoformat(),
         })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Error enviando welcome message: %s", e)
 
     try:
         while True:
@@ -563,7 +565,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             cmd_type = message.get("type", "<sin tipo>")
-            logger.info(f"[WS] {client_id} → {cmd_type}")
+            if cmd_type != "RC_CONTROL":
+                logger.info(f"[WS] {client_id} → {cmd_type}")
+            else:
+                logger.debug(f"[WS] {client_id} → {cmd_type}")
 
             result = await process_command(message, mav_controller)
 

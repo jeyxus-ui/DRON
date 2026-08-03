@@ -53,6 +53,11 @@ def startup_event():
         except Exception as e:
             logger.warning(f"⚠️ Error iniciando cámara (continuando sin ella): {e}")
         if getattr(rest, 'mav', None):
+            try:
+                rest.mav.setup_params()
+                logger.info("✅ Parámetros críticos configurados (DISARM_DELAY=60)")
+            except Exception as e:
+                logger.warning("⚠️ Error configurando parámetros: %s", e)
             websocket.start_telemetry_broadcast(rest.mav)
             logger.info("✅ Telemetry WebSocket iniciado")
             def vision_emergency():
@@ -83,8 +88,10 @@ def shutdown_event():
             logger.error(f"Error deteniendo cámara: {e}")
         if getattr(rest, 'mav', None):
             try:
-                rest.mav.conn.disconnect()
-                logger.info("✅ MAVLink desconectado")
+                conn = getattr(rest.mav, 'conn', None)
+                if conn is not None:
+                    conn.disconnect()
+                    logger.info("✅ MAVLink desconectado")
             except Exception as e:
                 logger.error(f"Error disconnecting MAV: {e}")
     except Exception as e:

@@ -56,17 +56,13 @@ def start_monitoring(baud: int, interval: int = 5) -> None:
     def _loop():
         import time
         while _monitor_thread and getattr(_monitor_thread, "_running", True):
-            if mav and getattr(mav, "conn", None):
-                conn = mav.conn
-                if not conn.is_connected():
-                    logger.warning("MAVLink connection lost (TCP dead)")
-                elif conn.msg_age() > 30:
-                    logger.warning("MAVLink no messages for %.0fs", conn.msg_age())
+            if mav and getattr(mav, "conn", None) and not mav.conn.is_connected():
+                logger.warning("MAVLink connection lost")
             time.sleep(interval)
     _monitor_thread = threading.Thread(target=_loop, daemon=True)
     _monitor_thread._running = True
     _monitor_thread.start()
-    logger.info("MAVLink monitoring started (interval=%ss, heartbeat timeout=%.0fs)", interval, 5.0)
+    logger.info("MAVLink monitoring started (interval=%ss)", interval)
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
@@ -106,31 +102,12 @@ def get_mav_controller():
 async def get_status():
     try:
         ctrl = get_mav_controller()
-        result = {
+        return {
             "connected":     ctrl.is_connected(),
             "armed":         ctrl.is_armed(),
             "mode":          ctrl.get_mode(),
             "system_status": ctrl.get_system_status(),
         }
-        conn = getattr(ctrl, "conn", None)
-        if conn and hasattr(conn, "get_connection_health"):
-            health = conn.get_connection_health()
-            result["healthy"] = health.get("healthy", False)
-            result["heartbeat_age_s"] = health.get("heartbeat_age_s")
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/connection/status")
-async def get_connection_status():
-    """Estado de salud de la conexión MAVLink (heartbeat, reconexión)."""
-    try:
-        ctrl = get_mav_controller()
-        conn = getattr(ctrl, "conn", None)
-        if conn is None:
-            return {"connected": False, "healthy": False, "device": "SIM"}
-        return conn.get_connection_health()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -188,6 +165,74 @@ async def get_telemetry():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ── Diagnóstico ───────────────────────────────────────────────────────────────
+
+@router.get("/diag/params")
+async def diag_params():
+    """Lee parámetros críticos del Pixhawk para diagnóstico."""
+    try:
+        ctrl = get_mav_controller()
+        params = ctrl.get_critical_params()
+        return {"success": True, "params": params}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/diag/param/set")
+async def diag_param_set(name: str, value: float):
+    """Establece un parámetro en el Pixhawk."""
+    try:
+        ctrl = get_mav_controller()
+        result = ctrl.set_param(name, value)
+        return {"success": True, "param": name, "value": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/diag/motor-test")
+async def diag_motor_test(motor: int = 0, throttle: float = 10.0, duration: float = 1.5, armed: bool = False):
+    """Test individual motor. motor=0-3, throttle=0-100, duration=seconds."""
+    try:
+        ctrl = get_mav_controller()
+        await asyncio.to_thread(ctrl.cmd.test_motor, motor, throttle, duration, even_if_armed=armed)
+        return {"success": True, "message": f"Motor {motor} tested @ {throttle}% for {duration}s"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/diag/rc")
+async def diag_rc():
+    """Diagnóstico del estado actual de RC Override."""
+    try:
+        ctrl = get_mav_controller()
+        rc = getattr(ctrl, "rc", None)
+        if not rc:
+            return {"success": False, "message": "RC no disponible"}
+        values = rc.get_current_values()
+        values["_send_failures"] = rc._send_failures
+        values["_send_count"] = rc._send_count
+        values["armed"] = rc._armed
+        return {"success": True, "rc": values}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/diag/servo_raw")
+async def diag_servo_raw():
+    """Lee SERVO_OUTPUT_RAW del Pixhawk (PWM real que está emitiendo)."""
+    try:
+        ctrl = get_mav_controller()
+        data = ctrl.get_servo_output_raw()
+        return {"success": "error" not in data, "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/diag/rc_channels")
+async def diag_rc_channels():
+    """Lee RC_CHANNELS del Pixhawk (lo que ve como entrada)."""
+    try:
+        ctrl = get_mav_controller()
+        data = ctrl.get_rc_channels()
+        return {"success": "error" not in data, "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ── Control Básico ─────────────────────────────────────────────────────────────
 
 @router.post("/arm")
@@ -196,34 +241,25 @@ async def arm_drone(request: ArmRequest):
         ctrl = get_mav_controller()
         if ctrl.is_armed() and not request.force:
             return {"success": False, "message": "Dron ya está armado"}
-        if not request.force:
-            preflight = ctrl.preflight_checks()
-            failed = [k for k, v in preflight.items() if not v]
-            if failed:
-                return {"success": False, "message": f"Pre-flight checks fallidos: {', '.join(failed)} — usa force=true para bypass"}
         success = await asyncio.to_thread(ctrl.arm, request.force)
-        if success:
-            rc = getattr(ctrl, "rc", None)
-            if rc:
-                rc.set_armed(True)
+        rc = getattr(ctrl, "rc", None)
+        if success and rc:
+            rc.set_armed(True)
         return {"success": success, "message": "Dron armado" if success else "Error armando", "armed": ctrl.is_armed()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/disarm")
-async def disarm_drone(request: ArmRequest = None):
-    if request is None:
-        request = ArmRequest(force=False)
+async def disarm_drone():
     try:
         ctrl = get_mav_controller()
         if not ctrl.is_armed():
             return {"success": False, "message": "Dron ya está desarmado"}
-        success = await asyncio.to_thread(ctrl.disarm, request.force)
-        if success:
-            rc = getattr(ctrl, "rc", None)
-            if rc:
-                rc.set_armed(False)
+        success = await asyncio.to_thread(ctrl.disarm)
+        rc = getattr(ctrl, "rc", None)
+        if success and rc:
+            rc.set_armed(False)
         return {"success": success, "message": "Dron desarmado" if success else "Error desarmando", "armed": ctrl.is_armed()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -233,8 +269,10 @@ async def disarm_drone(request: ArmRequest = None):
 async def takeoff(request: TakeoffRequest):
     try:
         ctrl = get_mav_controller()
-        if not (1 <= request.altitude <= 10):
-            return {"success": False, "message": "Altitud debe estar entre 1 y 10 metros"}
+        if not ctrl.is_armed():
+            return {"success": False, "message": "Dron no está armado"}
+        if not (2 <= request.altitude <= 100):
+            return {"success": False, "message": "Altitud debe estar entre 2 y 100 metros"}
         success = await asyncio.to_thread(ctrl.takeoff, request.altitude)
         return {"success": success, "message": f"Despegando a {request.altitude}m" if success else "Error despegando"}
     except Exception as e:
@@ -444,36 +482,6 @@ async def goto_location(request: GotoRequest):
             "message": f"Navegando a ({request.latitude}, {request.longitude})" if success else "Error navegando",
             "target": {"latitude": request.latitude, "longitude": request.longitude, "altitude": request.altitude},
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/upload_mission")
-async def upload_mission_rest(request: SaveWaypointsRequest):
-    try:
-        ctrl = get_mav_controller()
-        waypoints = request.waypoints
-        if not waypoints:
-            return {"success": False, "message": "Lista de waypoints vacía"}
-        formatted = []
-        for wp in waypoints:
-            formatted.append({
-                'lat': wp.get('latitude') or wp.get('lat', 0),
-                'lon': wp.get('longitude') or wp.get('lon', 0),
-                'alt': wp.get('altitude') or wp.get('alt', 10),
-            })
-        success = await asyncio.to_thread(ctrl.upload_mission, formatted)
-        return {"success": success, "message": f"Misión con {len(formatted)} waypoints subida" if success else "Error subiendo misión"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/start_mission")
-async def start_mission_rest():
-    try:
-        ctrl = get_mav_controller()
-        success = await asyncio.to_thread(ctrl.start_mission)
-        return {"success": success, "message": "Misión iniciada" if success else "Error iniciando misión"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -79,12 +79,13 @@ class MAVLinkConnection:
                 else:
                     self.disconnect()
 
+                new_master = mavutil.mavlink_connection(
+                    self.device,
+                    baud=self.baud,
+                    source_system=255,
+                )
                 with self._lock:
-                    self.master = mavutil.mavlink_connection(
-                        self.device,
-                        baud=self.baud,
-                        source_system=255,
-                    )
+                    self.master = new_master
 
                 logger.info("⏳ Esperando heartbeat...")
                 self.master.wait_heartbeat(timeout=5)
@@ -447,11 +448,15 @@ class MAVLinkConnection:
         """
         if not self.is_connected():
             return None
-        return self.master.recv_match(
-            type=msg_type,
-            blocking=blocking,
-            timeout=timeout,
-        )
+        try:
+            return self.master.recv_match(
+                type=msg_type,
+                blocking=blocking,
+                timeout=timeout,
+            )
+        except (OSError, IOError) as e:
+            logger.debug("recv_match serial error: %s", e)
+            return None
 
     def pause_read(self):
         """Context manager para pausar _read_loop durante operaciones exclusivas."""

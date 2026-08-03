@@ -10,7 +10,6 @@ from .commands import DroneCommands
 from .telemetry import DroneTelemetry
 from pymavlink import mavutil
 import logging
-import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -57,57 +56,109 @@ class MAVController:
             return
 
         self.conn = MAVLinkConnection(device, baud)
+        # Habilitar reconexión automática en segundo plano
         try:
             self.conn.start_auto_reconnect()
         except Exception:
             logger.debug("No se pudo iniciar auto-reconnect automáticamente")
         self.cmd = DroneCommands(self.conn)
         self.telemetry = DroneTelemetry(self.conn)
-        self.telemetry.start()
         self.cmd.telemetry = self.telemetry
+        self.master = self.conn.master
         self.rc = RCOverrideController(self.conn)
+        self.rc._reconnect_callback = self._rearm_after_failsafe
         self.rc.start()
+        # Callback desde telemetría HEARTBEAT para detectar armado real
         self.conn._rc_callback = self.rc.set_armed
-        self.conn._post_reconnect = self.telemetry._request_streams
-        threading.Thread(target=self._set_initial_params, daemon=True).start()
-        logger.info("Telemetry + RC Override Controller iniciados")
+        logger.info("RC Override Controller iniciado")
 
-    @property
-    def master(self):
-        return self.conn.master if self.conn else None
+    def setup_params(self):
+        """Set critical Pixhawk parameters for safe operation."""
+        params = {
+            'DISARM_DELAY': 60,
+        }
+        for name, value in params.items():
+            try:
+                result = self.set_param(name, value)
+                logger.info('✅ Param set %s = %s', name, result)
+            except Exception as e:
+                logger.warning('⚠️ Param set %s failed: %s', name, e)
 
-    def _set_initial_params(self):
-        """Set critical params on SITL connection (ARMING_CHECK=0, DISARM_DELAY=0).
-        Runs as background thread. ONLY for SITL (TCP/UDP) — never on real hardware."""
-        time.sleep(3)
-        device = getattr(self.conn, 'device', '') if self.conn else ''
-        is_sitl = isinstance(device, str) and ':' in device and not device.startswith('/')
-        if not is_sitl:
-            logger.info("Skipping _set_initial_params: real hardware detected (%s)", device)
-            return
+    def read_param_safe(self, name):
+        """Read a Pixhawk parameter, return None on failure."""
         try:
-            m = self.conn.master
-            if not m:
-                return
-            params = [
-                (b'ARMING_CHECK', 0),
-                (b'DISARM_DELAY', 0),
-            ]
-            for name, val in params:
-                try:
-                    with self.conn._lock:
-                        m.mav.param_set_send(
-                            m.target_system, m.target_component,
-                            name, float(val), mavutil.mavlink.MAV_PARAM_TYPE_REAL32
-                        )
-                    logger.info(f"Param set: {name.decode()}={val}")
-                    time.sleep(1.5)
-                except Exception as e:
-                    logger.warning(f"Failed to set param {name}: {e}")
-                    time.sleep(2)
-            logger.info("Initial params set: ARMING_CHECK=0, DISARM_DELAY=0")
+            result = self.get_param(name)
+            return result
         except Exception as e:
-            logger.warning(f"Failed to set initial params: {e}")
+            logger.warning('⚠️ Could not read param %s: %s', name, e)
+            return None
+
+    def get_critical_params(self) -> dict:
+        """Read and return critical diagnostic parameters."""
+        critical = [
+            'MOT_SPIN_ARM', 'MOT_SPIN_MIN', 'MOT_SPIN_MAX',
+            'MOT_PWM_MIN', 'MOT_PWM_MAX',
+            'DISARM_DELAY', 'ARMING_CHECK',
+            'RC_OVERRIDE_TIME', 'BRD_SAFETY_DEFLT',
+            'BATT_MONITOR', 'BATT_N_CELLS', 'BATT_LOW_VOLT', 'BATT_FS_LOW_ACT',
+        ]
+        result = {}
+        for name in critical:
+            val = self.read_param_safe(name)
+            if val is not None:
+                result[name] = val
+        return result
+
+    def get_servo_output_raw(self) -> dict:
+        """Read SERVO_OUTPUT_RAW from Pixhawk (actual PWM output)."""
+        result = {}
+        master = getattr(self.conn, 'master', None)
+        if not master:
+            return {"error": "no connection"}
+        try:
+            master.mav.command_long_send(
+                master.target_system, master.target_component,
+                mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                0, mavutil.mavlink.MAVLINK_MSG_ID_SERVO_OUTPUT_RAW, 200_000,
+                0, 0, 0, 0, 0,
+            )
+            msg = master.recv_match(type='SERVO_OUTPUT_RAW', blocking=True, timeout=2)
+            if msg:
+                for i in range(1, 9):
+                    pwm = getattr(msg, f'servo{i}_raw', 0)
+                    result[f'ch{i}'] = pwm
+                result['port'] = msg.port
+            else:
+                result["error"] = "timeout waiting for SERVO_OUTPUT_RAW"
+        except Exception as e:
+            result["error"] = str(e)
+        return result
+
+    def get_rc_channels(self) -> dict:
+        """Read RC_CHANNELS from Pixhawk (what it sees as input)."""
+        result = {}
+        master = getattr(self.conn, 'master', None)
+        if not master:
+            return {"error": "no connection"}
+        try:
+            master.mav.command_long_send(
+                master.target_system, master.target_component,
+                mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+                0, mavutil.mavlink.MAVLINK_MSG_ID_RC_CHANNELS, 200_000,
+                0, 0, 0, 0, 0,
+            )
+            msg = master.recv_match(type='RC_CHANNELS', blocking=True, timeout=2)
+            if msg:
+                for i in range(1, 19):
+                    chan = getattr(msg, f'chan{i}_raw', 0)
+                    if chan != 65535 and chan != 0:
+                        result[f'ch{i}'] = chan
+                result['rssi'] = getattr(msg, 'rssi', 0)
+            else:
+                result["error"] = "timeout waiting for RC_CHANNELS"
+        except Exception as e:
+            result["error"] = str(e)
+        return result
 
     # Telemetry / status wrappers
     def get_telemetry(self):
@@ -125,94 +176,65 @@ class MAVController:
     def preflight_checks(self):
         return self.telemetry.preflight_checks()
 
+    # ── Re-arm automático tras failsafe ───────────────────────────────────
+
+    def _rearm_after_failsafe(self):
+        """Dispara re-arm en un hilo separado para no bloquear al caller."""
+        import threading
+        t = threading.Thread(target=self._do_rearm, daemon=True)
+        t.start()
+
+    def _do_rearm(self):
+        """Re-arma el Pixhawk tras un failsafe disarm."""
+        logger.warning('🚁 Re-armando tras failsafe...')
+        time.sleep(0.5)
+        try:
+            result = self.cmd.arm(force=True)
+            if result:
+                logger.warning('✅ Re-arm exitoso tras failsafe')
+                self.rc.set_armed(True)
+            else:
+                logger.error('❌ Re-arm falló tras failsafe')
+        except Exception as e:
+            logger.error('❌ Error en re-arm tras failsafe: %s', e)
+
     # Basic commands
     def arm(self, force=True):
+        self.rc.set_armed(True)
         try:
-            self.conn.suppress_probe(True)
+            result = self.cmd.arm(force=force)
+            if not result and not self.is_armed():
+                self.rc.set_armed(False)
+            return result
         except Exception:
-            pass
-        try:
-            return self.cmd.arm(force=force)
-        finally:
-            try:
-                self.conn.suppress_probe(False)
-            except Exception:
-                pass
+            self.rc.set_armed(False)
+            raise
 
     def disarm(self, force=False):
+        # Detener RC Override primero (throttle=0) para que Pixhawk acepte disarm
+        self.rc.set_armed(False)
+        time.sleep(0.5)
         try:
-            self.conn.suppress_probe(True)
+            result = self.cmd.disarm(force=force)
+            if result or not self.is_armed():
+                self.rc.set_armed(False)
+            return result
         except Exception:
-            pass
-        try:
-            return self.cmd.disarm(force=force)
-        finally:
-            try:
-                self.conn.suppress_probe(False)
-            except Exception:
-                pass
+            if not self.is_armed():
+                self.rc.set_armed(False)
+            raise
 
     def set_mode(self, mode):
         return self.cmd.set_mode(mode)
 
     def takeoff(self, altitude):
-        try:
-            self.rc.set_autonomous(True)
-            self.conn.suppress_probe(True)
-        except Exception:
-            pass
-        try:
-            result = self.cmd.takeoff(altitude)
-            if not result:
-                try:
-                    self.rc.set_autonomous(False)
-                    self.conn.suppress_probe(False)
-                except Exception:
-                    pass
-            else:
-                try:
-                    self.rc.set_autonomous(False)
-                    self.conn.suppress_probe(False)
-                except Exception:
-                    pass
-            return result
-        except Exception:
-            try:
-                self.rc.set_autonomous(False)
-                self.conn.suppress_probe(False)
-            except Exception:
-                pass
-            raise
+        return self.cmd.takeoff(altitude)
 
     def land(self):
-        try:
-            self.rc.set_autonomous(True)
-            self.conn.suppress_probe(True)
-        except Exception:
-            pass
-        try:
-            return self.cmd.land()
-        finally:
-            try:
-                self.rc.set_autonomous(False)
-                self.conn.suppress_probe(False)
-            except Exception:
-                pass
+        return self.cmd.land()
 
     def rtl(self):
-        try:
-            self.rc.set_autonomous(True)
-            self.conn.suppress_probe(True)
-        except Exception:
-            pass
-        try:
-            return self.cmd.rtl()
-        finally:
-            try:
-                self.rc.set_autonomous(False)
-                self.conn.suppress_probe(False)
-            except Exception:
-                pass
+        return self.cmd.rtl()
 
     def goto_position(self, lat, lon, alt):
         return self.cmd.goto_position(lat, lon, alt)
@@ -223,7 +245,10 @@ class MAVController:
 
     def is_armed(self):
         st = self.get_status()
-        return st.get("armed", False) if isinstance(st, dict) else False
+        armed = st.get("armed", False) if isinstance(st, dict) else False
+        if armed and self.conn and not self.conn.is_heartbeat_healthy():
+            return False
+        return armed
 
     def get_mode(self):
         st = self.get_status()
@@ -311,26 +336,13 @@ class MAVController:
         if not waypoints:
             raise ValueError("No waypoints provided")
 
-        try:
-            self.rc.set_autonomous(True)
-            self.conn.suppress_probe(True)
-            result = self._do_upload_mission(waypoints)
-            if result:
-                self.rc.set_autonomous(False)
-                self.conn.suppress_probe(False)
-            return result
-        except Exception:
-            try:
-                self.rc.set_autonomous(False)
-                self.conn.suppress_probe(False)
-            except Exception:
-                pass
-            raise
+        # Pausar _read_loop para evitar race condition
+        with self.conn.pause_read():
+            return self._do_upload_mission(waypoints)
 
     def _do_upload_mission(self, waypoints):
         try:
             count = len(waypoints)
-            logger.info(f"📤 upload_mission: {count} waypoints")
             self.master.mav.mission_count_send(
                 self.master.target_system,
                 self.master.target_component,
@@ -338,24 +350,13 @@ class MAVController:
             )
 
             start_time = time.time()
-            retries = 0
-            max_retries = 3
 
-            while retries < max_retries:
-                msg = self.conn.recv_match_protected('MISSION_REQUEST_INT', timeout=2)
+            while True:
+                # Esperar petición de misión (usando protected para evitar race con _read_loop)
+                msg = self.conn.recv_match_protected('MISSION_REQUEST_INT', timeout=5)
                 if not msg:
-                    msg = self.conn.recv_match_protected('MISSION_REQUEST', timeout=6)
-                if not msg:
-                    elapsed = time.time() - start_time
-                    if elapsed > 20:
-                        raise TimeoutError(f"Timeout waiting for MISSION_REQUEST_INT after {elapsed:.0f}s")
-                    retries += 1
-                    logger.warning(f"MISSION_REQUEST_INT timeout (reintento {retries}/{max_retries})")
-                    self.master.mav.mission_count_send(
-                        self.master.target_system,
-                        self.master.target_component,
-                        count
-                    )
+                    if time.time() - start_time > 10:
+                        raise TimeoutError("Timeout waiting for MISSION_REQUEST_INT")
                     continue
 
                 req_seq = msg.seq
@@ -368,8 +369,7 @@ class MAVController:
                 lon = int(wp['lon'] * 1e7)
                 alt = float(wp.get('alt', 10.0))
 
-                logger.info(f"  WP {req_seq+1}/{count}: lat={wp['lat']:.6f} lon={wp['lon']:.6f} alt={alt}m")
-
+                # Enviar MISSION_ITEM_INT
                 self.master.mav.mission_item_int_send(
                     self.master.target_system,
                     self.master.target_component,
@@ -381,81 +381,32 @@ class MAVController:
                 )
 
                 if req_seq == count - 1:
-                    ack = self.conn.recv_match_protected('MISSION_ACK', timeout=10)
+                    # Esperar ACK (protected contra race con _read_loop)
+                    ack = self.conn.recv_match_protected('MISSION_ACK', timeout=5)
                     if ack:
-                        logger.info(f"✅ Misión subida ({count} waypoints)")
                         return True
                     else:
                         raise TimeoutError("No se recibió MISSION_ACK")
-
-            raise TimeoutError("MISSION_REQUEST_INT: max retries agotado")
 
         except Exception as e:
             logger.error(f"Error uploading mission: {e}")
             raise
 
     def start_mission(self):
-        try:
-            self.rc.set_autonomous(True)
-            self.conn.suppress_probe(True)
-            result = self._do_start_mission()
-            if result:
-                t = threading.Thread(target=self._mission_climb_guard, daemon=True)
-                t.start()
-            else:
-                try:
-                    self.rc.set_autonomous(False)
-                    self.conn.suppress_probe(False)
-                except Exception:
-                    pass
-            return result
-        except Exception:
-            try:
-                self.rc.set_autonomous(False)
-                self.conn.suppress_probe(False)
-            except Exception:
-                pass
-            raise
-
-    def _mission_climb_guard(self):
-        """Mantiene RC override en modo 'no override' durante toda la misión AUTO.
-        Solo restaura control RC cuando el modo cambia fuera de AUTO/GUIDED
-        (misión completada, RTL por pilotaje, etc.) o cuando el dron aterriza."""
-        start = time.time()
-        logger.info("[MISSION-GUARD] RC override en modo 65535 (no override) durante AUTO — esperando fin de misión")
-        while True:
-            time.sleep(2)
-            mode = ""
-            if self.telemetry and self.telemetry.data:
-                mode = self.telemetry.data.get('mode', '')
-                armed = self.telemetry.data.get('armed', False)
-            else:
-                armed = False
-            if not armed:
-                logger.info("[MISSION-GUARD] Dron desarmado — restaurando control RC")
-                break
-            if mode not in ('AUTO', 'GUIDED'):
-                logger.info(f"[MISSION-GUARD] Modo cambió a {mode} — restaurando control RC")
-                break
-            elapsed = time.time() - start
-            if int(elapsed) % 60 == 0 and elapsed > 0:
-                logger.info("[MISSION-GUARD] Misión en curso (%.0fs) — manteniendo override autónomo", elapsed)
-        try:
-            self.rc.set_autonomous(False)
-            self.conn.suppress_probe(False)
-            logger.info("[MISSION-GUARD] Control RC restaurado")
-        except Exception:
-            pass
+        with self.conn.pause_read():
+            return self._do_start_mission()
 
     def _do_start_mission(self):
         try:
+            # Establecer índice de misión en 0 y cambiar a AUTO
             self.master.mav.mission_set_current_send(
                 self.master.target_system,
                 self.master.target_component,
                 0
             )
             time.sleep(0.5)
-            return self.set_mode('AUTO')
+            self.set_mode('AUTO')
+            return True
         except Exception as e:
             logger.error(f"Error starting mission: {e}")
             raise
@@ -612,3 +563,18 @@ class _SimulatedController:
 
     def get_flight_logs(self):
         return []
+
+    def get_critical_params(self) -> dict:
+        return {'__mode__': 'SIM', '__params__': list(self._params.keys())}
+
+    def test_motor(self, motor_id: int, throttle_pct: float = 10.0,
+                   duration_s: float = 1.5, even_if_armed: bool = False) -> bool:
+        logger.info(f"🔧 SIM MOTOR TEST — motor {motor_id} @ {throttle_pct}% for {duration_s}s")
+        time.sleep(min(duration_s, 0.5))
+        return True
+
+    def get_servo_output_raw(self) -> dict:
+        return {"sim": True, "ch1": 1500, "ch2": 1500, "ch3": 1500, "ch4": 1500}
+
+    def get_rc_channels(self) -> dict:
+        return {"sim": True, "ch3": 1500, "rssi": 255}
