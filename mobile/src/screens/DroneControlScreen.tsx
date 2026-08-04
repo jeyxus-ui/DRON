@@ -488,6 +488,34 @@ export const DroneControlScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
+          {/* ── COMPACT RETRY BTN (cámara no conectada, no bloquea joysticks) ── */}
+          {cameraState !== 'connected' && cameraState !== 'loading' && (
+            <View style={styles.retryFloat}>
+              <TouchableOpacity
+                style={styles.retryFloatBtn}
+                onPress={() => {
+                  setCameraState('loading');
+                  fetch(`${getApiUrl()}/api/camera/status`)
+                    .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
+                    .then(data => {
+                      if (data.running && data.has_frame) {
+                        setCameraState('connected');
+                        cameraKeyRef.current++;
+                        pushError('CAM_OK', 'Cámara conectada', 'info');
+                      } else {
+                        setCameraState('failed');
+                        pushError('CAM_NOT_CONNECTED', 'No hay cámara conectada — verifica cable USB y drivers', 'error');
+                      }
+                    })
+                    .catch(() => { setCameraState('failed'); pushError('CAM_NETWORK', 'Red no disponible para cámara', 'error'); });
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.retryFloatText}>📷 REINTENTAR</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* ── JOYSTICKS LANDSCAPE ── */}
           <View style={styles.joystickSectionLandscape}>
             <DualJoystick
@@ -885,6 +913,20 @@ const styles = StyleSheet.create({
     backgroundColor: AMBER + '15',
   },
   retryBtnText: { color: AMBER, fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
+
+  // ── COMPACT RETRY FLOATING BTN ──
+  retryFloat: {
+    position: 'absolute', top: 48, left: 0, right: 0,
+    alignItems: 'center', zIndex: 100,
+    paddingVertical: 6,
+  },
+  retryFloatBtn: {
+    borderWidth: 1.5, borderColor: AMBER + '66',
+    borderRadius: 10,
+    backgroundColor: 'rgba(10,13,18,0.7)',
+    paddingHorizontal: 16, paddingVertical: 8,
+  },
+  retryFloatText: { color: AMBER, fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
 
   // ── METRIC CHIPS ──
   metricChips: {
