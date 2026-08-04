@@ -24,22 +24,25 @@ def connect(device: str, baud: int = 115200):
     return master
 
 
-def read_param(master, name: str, timeout: float = 3.0):
-    """Lee un parámetro del Pixhawk y devuelve su valor."""
-    master.mav.param_request_read_send(
-        master.target_system, master.target_component,
-        name.encode('utf-8'), -1
-    )
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        msg = master.recv_match(type='PARAM_VALUE', blocking=True, timeout=timeout)
-        if msg:
-            try:
-                pid = msg.param_id.decode('utf-8').strip('\x00')
-            except Exception:
-                pid = str(msg.param_id)
-            if pid == name:
-                return msg.param_value
+def read_param(master, name: str, timeout: float = 3.0, retries: int = 2):
+    """Lee un parámetro del Pixhawk y devuelve su valor (con reintentos)."""
+    for _ in range(retries + 1):
+        while master.recv_match(type='PARAM_VALUE', blocking=False):
+            pass
+        master.mav.param_request_read_send(
+            master.target_system, master.target_component,
+            name.encode('utf-8'), -1
+        )
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            msg = master.recv_match(type='PARAM_VALUE', blocking=True, timeout=timeout)
+            if msg:
+                try:
+                    pid = msg.param_id.decode('utf-8').strip('\x00')
+                except Exception:
+                    pid = str(msg.param_id)
+                if pid == name:
+                    return msg.param_value
     return None
 
 
@@ -175,6 +178,77 @@ def check_gps(master):
         print("  ⚠️  No GPS_RAW_INT received")
 
 
+def check_rc_params(master):
+    """Parámetros que gobiernan la respuesta del joystick derecho (roll/pitch)."""
+    print(f"\n{'─'*60}")
+    print("🎮 PARÁMETROS RELEVANTES AL JOYSTICK DERECHO (roll/pitch)")
+    print('─'*60)
+    # ArduPilot <4.x usa RATE_* / ANGLE_MAX; 4.x+ usa ATC_RAT_* / ATC_ANGLE_MAX.
+    params = [
+        'FRAME_TYPE',
+        'RATE_RLL_P', 'RATE_PIT_P', 'ATC_RAT_RLL_P', 'ATC_RAT_PIT_P',
+        'ANGLE_MAX', 'ATC_ANGLE_MAX',
+        'RC_OVERRIDE_TIME',
+        'RC1_TRIM', 'RC2_TRIM', 'RC3_TRIM', 'RC4_TRIM',
+        'MOT_SPIN_ARM', 'MOT_PWM_MIN', 'MOT_PWM_MAX',
+        'ACRO_BAL_ROLL', 'ACRO_BAL_PITCH',
+    ]
+    for name in params:
+        val = read_param(master, name)
+        if val is not None:
+            print(f"  {name:>16} = {val}")
+        else:
+            print(f"  {name:>16} = ⚠️  sin respuesta")
+    print("\n  Nota: RATE_RLL_P / ATC_RAT_RLL_P ≈ 0 → el dron NO responde a roll/pitch.")
+    print("  Nota: ATC_ANGLE_MAX bajo (ej. 0) → inclinación máxima limitada a nada.")
+    print("  Nota: RC_OVERRIDE_TIME = 0 → el override expira y manda la radio física.")
+
+
+def monitor_rc(master, duration: float = 30.0):
+    """Monitor en vivo de RC_CHANNELS y SERVO_OUTPUT_RAW para probar los joysticks.
+
+    Mueve el joystick DERECHO de la app → CH1 (roll) y CH2 (pitch) deben desviarse de 1500.
+    Mueve el joystick IZQUIERDO → CH3 (throttle) y CH4 (yaw) deben desviarse.
+    """
+    request_message(master, mavutil.mavlink.MAVLINK_MSG_ID_RC_CHANNELS, 100_000)
+    request_message(master, mavutil.mavlink.MAVLINK_MSG_ID_SERVO_OUTPUT_RAW, 100_000)
+    print(f"\n{'─'*60}")
+    print("📻 MONITOR EN VIVO (mueve los joysticks de la app — 5 lecturas/s)")
+    print('─'*60)
+    print("  Joystick DERECHO → CH1 (roll) y CH2 (pitch).")
+    print("  Joystick IZQUIERDO → CH3 (throttle) y CH4 (yaw).\n")
+    last = None
+    deadline = time.time() + duration
+    try:
+        while time.time() < deadline:
+            rc = master.recv_match(type='RC_CHANNELS', blocking=True, timeout=0.5)
+            if rc:
+                ch = {i: getattr(rc, f'chan{i}_raw', 65535) for i in range(1, 5)}
+                key = tuple(ch.values())
+                if key != last:
+                    last = key
+                    line = '  '
+                    for i in range(1, 5):
+                        v = ch[i]
+                        if v == 65535:
+                            line += f'CH{i}=N/A   '
+                        elif abs(v - 1500) > 20:
+                            line += f'CH{i}={v:>5} ← MOVIENDO   '
+                        else:
+                            line += f'CH{i}={v:>5} (centro)   '
+                    print(f"{line}  rssi={rc.rssi}")
+            else:
+                print('  ⚠️  sin datos RC_CHANNELS')
+                time.sleep(0.2)
+    except KeyboardInterrupt:
+        print('\n  Monitor detenido por el usuario.')
+    finally:
+        print('\n  ── Muestra SERVO_OUTPUT_RAW (PWM real de salida) ──')
+        servo = master.recv_match(type='SERVO_OUTPUT_RAW', blocking=True, timeout=1)
+        if servo:
+            print('  ' + '  '.join(f'CH{i}={getattr(servo, f"servo{i}_raw", 0):>4}' for i in range(1, 9)))
+
+
 def check_statustext(master):
     """Lee STATUSTEXT recientes del buffer."""
     print(f"\n{'─'*60}")
@@ -194,10 +268,37 @@ def check_statustext(master):
 
 
 def main():
-    device = sys.argv[1] if len(sys.argv) > 1 else '/dev/ttyACM0'
+    args = sys.argv[1:]
+    monitor = '--monitor' in args
+    duration = 30.0
+    device = '/dev/ttyACM0'
+    rest = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == '--monitor':
+            monitor = True
+        elif a == '--duration':
+            try:
+                duration = float(args[i + 1])
+                i += 1
+            except (ValueError, IndexError):
+                pass
+        else:
+            rest.append(a)
+        i += 1
+    if rest:
+        device = rest[0]
     baud = 115200
 
     master = connect(device, baud)
+
+    if monitor:
+        check_rc_params(master)
+        monitor_rc(master, duration=duration)
+        master.close()
+        print("\n🔌 Conexión cerrada.")
+        return
 
     # ── 1. Heartbeat / estado básico ──
     armed, mode = check_heartbeat(master)
@@ -265,6 +366,8 @@ def main():
         print("   4. El failsafe de rc_override.py pudo haber desarmado")
 
     print(f"\n💡 Próximos pasos:")
+    print(f"   - Monitor en vivo: python scripts/motor_diagnostic.py --monitor --duration 60")
+    print(f"     (mueve el joystick derecho → observa CH1/CH2; el izquierdo → CH3/CH4)")
     print(f"   - Ejecutar: python scripts/motor_diagnostic.py")
     print(f"   - Verificar SERVO_OUTPUT_RAW vs RC_CHANNELS")
     print(f"   - Ver parámetro MOT_SPIN_ARM")

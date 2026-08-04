@@ -164,6 +164,7 @@ async def get_telemetry_data(mav_controller) -> dict:
     except Exception as e:
         logger.debug("Error obteniendo datos de sensores: %s", e)
 
+    try:
         telemetry = getattr(mav_controller, "telemetry", None)
         sensors = _get_sensor_data()
 
