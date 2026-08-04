@@ -1,0 +1,418 @@
+INFO:     Started server process [20428]
+INFO:     Waiting for application startup.
+2026-07-25 21:48:45,478 - backend.config - INFO - Usando conexión remota MAVLink: tcp:172.28.252.91:5760
+2026-07-25 21:48:45,478 - backend.main - INFO - Selected MAVLink device: tcp:172.28.252.91:5760
+2026-07-25 21:48:45,541 - backend.mavlink.connection - INFO - \U0001f50c Conectando a tcp:172.28.252.91:5760 @ 115200 baud (intento 1/5)
+2026-07-25 21:48:45,541 - backend.mavlink.connection - INFO - \U0001f50c Desconectado
+2026-07-25 21:48:45,543 - backend.mavlink.connection - INFO - \u23f3 Esperando heartbeat...
+2026-07-25 21:48:45,576 - backend.mavlink.connection - INFO - \u2705 Conectado (System: 1, Component: 0)
+2026-07-25 21:48:45,577 - backend.mavlink.connection - INFO - \U0001f501 Auto-reconnect thread iniciado (estable, backoff: 5s\u219230s)
+2026-07-25 21:48:45,578 - backend.mavlink.telemetry - INFO - \U0001f4e1 Thread de telemetría iniciado
+2026-07-25 21:48:45,579 - backend.mavlink.telemetry - INFO - \u23f3 Esperando conexión para solicitar streams...
+2026-07-25 21:48:45,579 - backend.mavlink.rc_override - INFO - RCOverrideController inicializado
+2026-07-25 21:48:45,580 - backend.mavlink.rc_override - INFO - RC Override iniciado — enviando a 10 Hz
+2026-07-25 21:48:45,580 - backend.mavlink.controller - INFO - Telemetry + RC Override Controller iniciados
+2026-07-25 21:48:45,580 - backend.api.rest - INFO - MAVLink controller initialized: device=tcp:172.28.252.91:5760 baud=115200
+2026-07-25 21:48:45,580 - backend.mavlink.telemetry - INFO - \u2705 Streams solicitados al Pixhawk @ 10 Hz (comps=[1, 0])
+2026-07-25 21:48:45,582 - backend.api.rest - INFO - MAVLink monitoring started (interval=5s, heartbeat timeout=5s)
+[ERROR:0@5.694] global obsensor_uvc_stream_channel.cpp:156 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@5.699] global obsensor_uvc_stream_channel.cpp:156 cv::obsensor::getStreamChannelGroup Camera index out of range
+2026-07-25 21:48:45,602 - backend.mavlink.telemetry - INFO - COMMAND_ACK stored: cmd=519 result=3
+[ERROR:0@5.753] global obsensor_uvc_stream_channel.cpp:156 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@5.762] global obsensor_uvc_stream_channel.cpp:156 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@6.021] global obsensor_uvc_stream_channel.cpp:156 cv::obsensor::getStreamChannelGroup Camera index out of range
+[ERROR:0@6.024] global obsensor_uvc_stream_channel.cpp:156 cv::obsensor::getStreamChannelGroup Camera index out of range
+2026-07-25 21:48:45,927 - backend.main - WARNING - \u26a0\ufe0f Error iniciando cámara (continuando sin ella): No device connected
+2026-07-25 21:48:45,928 - backend.api.websocket - INFO - Telemetry broadcaster iniciado
+2026-07-25 21:48:45,928 - backend.main - INFO - \u2705 Telemetry WebSocket iniciado
+2026-07-25 21:48:45,928 - backend.api.camera_stream - INFO - Emergency callback registered
+2026-07-25 21:48:45,929 - backend.main - INFO - \u2705 Vision \u2192 MAVLink emergency callback registrado
+2026-07-25 21:48:45,947 - backend.sensors.mtf01 - ERROR - [MTF01] smbus no disponible en esta plataforma
+2026-07-25 21:48:45,947 - backend.sensors.ydlidar_x4 - ERROR - [YDLIDAR] Puerto /dev/ttyUSB0 no disponible
+2026-07-25 21:48:45,948 - backend.sensors.manager - WARNING - [SENSORES] Ningún sensor pudo iniciarse
+2026-07-25 21:48:45,948 - backend.api.rest - INFO - SensorManager iniciado (sim=False)
+2026-07-25 21:48:45,963 - backend.navigation.controller - INFO - [NAV] Navigation controller iniciado
+2026-07-25 21:48:45,964 - backend.api.rest - INFO - NavigationController iniciado
+2026-07-25 21:48:45,964 - backend.main - INFO - \u2705 Sensores y navegación autónoma iniciados
+2026-07-25 21:48:45,964 - backend.api.websocket - INFO - Iniciando broadcaster de telemetría...
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-07-25 21:48:48,765 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:48:48,765 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:48:56,469 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:48:56,470 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:00,677 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:49:04,181 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:04,181 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:10,718 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (2/2)
+2026-07-25 21:49:10,718 - backend.mavlink.connection - WARNING - \U0001f480 Zombie TCP connection detected (WSL2?) — forcing reconnect
+2026-07-25 21:49:10,719 - backend.mavlink.connection - INFO - \U0001f50c Conectando a tcp:172.28.252.91:5760 @ 115200 baud (intento 1/1)
+2026-07-25 21:49:10,722 - backend.mavlink.connection - INFO - \u23f3 Esperando heartbeat...
+2026-07-25 21:49:11,546 - backend.mavlink.connection - INFO - \u2705 Conectado (System: 1, Component: 0)
+2026-07-25 21:49:11,546 - backend.mavlink.connection - INFO - Reconectado (backoff reset a 5s)
+2026-07-25 21:49:11,547 - backend.mavlink.telemetry - INFO - \u23f3 Esperando conexión para solicitar streams...
+2026-07-25 21:49:11,548 - backend.mavlink.telemetry - INFO - \u2705 Streams solicitados al Pixhawk @ 10 Hz (comps=[1, 0])
+2026-07-25 21:49:11,887 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:11,888 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:19,589 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:19,590 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:21,582 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:49:26,338 - backend.mavlink.telemetry - INFO - COMMAND_ACK stored: cmd=519 result=3
+2026-07-25 21:49:27,296 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:27,297 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:35,004 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:35,005 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:35,688 - backend.mavlink.commands - INFO - \U0001f504 Cambiando a modo: GUIDED
+2026-07-25 21:49:36,189 - backend.mavlink.commands - INFO - \u2705 Modo enviado: GUIDED
+2026-07-25 21:49:41,650 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:49:42,710 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:42,710 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:44,651 - backend.mavlink.commands - INFO - \U0001f504 Cambiando a modo: GUIDED
+2026-07-25 21:49:45,152 - backend.mavlink.commands - INFO - \u2705 Modo enviado: GUIDED
+2026-07-25 21:49:46,182 - backend.mavlink.commands - INFO - \U0001f534 ARM — Armando motores...
+2026-07-25 21:49:46,183 - backend.mavlink.commands - INFO - \U0001f527 ARMING_CHECK=0 (force mode)
+2026-07-25 21:49:46,685 - backend.mavlink.commands - INFO - \u23f3 Esperando EKF alignment antes de enviar ARM...
+2026-07-25 21:49:50,417 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:50,417 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:51,720 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (2/2)
+2026-07-25 21:49:51,720 - backend.mavlink.connection - WARNING - \U0001f480 Zombie TCP connection detected (WSL2?) — forcing reconnect
+2026-07-25 21:49:51,721 - backend.mavlink.connection - INFO - \U0001f50c Conectando a tcp:172.28.252.91:5760 @ 115200 baud (intento 1/1)
+2026-07-25 21:49:51,723 - backend.mavlink.connection - INFO - \u23f3 Esperando heartbeat...
+2026-07-25 21:49:52,555 - backend.mavlink.connection - INFO - \u2705 Conectado (System: 1, Component: 0)
+2026-07-25 21:49:52,558 - backend.mavlink.connection - INFO - Reconectado (backoff reset a 5s)
+2026-07-25 21:49:52,558 - backend.mavlink.telemetry - INFO - \u23f3 Esperando conexión para solicitar streams...
+2026-07-25 21:49:52,558 - backend.mavlink.telemetry - INFO - \u2705 Streams solicitados al Pixhawk @ 10 Hz (comps=[1, 0])
+2026-07-25 21:49:58,116 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:49:58,117 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:02,613 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:50:05,826 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:05,826 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:07,308 - backend.mavlink.telemetry - INFO - COMMAND_ACK stored: cmd=519 result=3
+2026-07-25 21:50:13,521 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:13,522 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:16,687 - backend.mavlink.commands - WARNING - \u26a0\ufe0f EKF timeout (30s) — intentando ARM de todas formas
+2026-07-25 21:50:21,233 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:21,233 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:22,680 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:50:24,723 - backend.mavlink.commands - WARNING - \u26a0\ufe0f ACK timeout — verificando estado via HEARTBEAT...
+2026-07-25 21:50:28,274 - backend.mavlink.commands - INFO - \u2705 Dron armado (confirmado por HEARTBEAT)
+2026-07-25 21:50:28,274 - backend.mavlink.rc_override - INFO - \u23f3 ARM — idle 1 s activado (joystick bloqueado)
+2026-07-25 21:50:28,929 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:28,930 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:29,359 - backend.mavlink.rc_override - INFO - \u2705 IDLE ARM — periodo de idle completado, joystick activo
+2026-07-25 21:50:31,289 - backend.mavlink.commands - INFO - \U0001f681 TAKEOFF — Despegando a 15.0m
+2026-07-25 21:50:31,289 - backend.mavlink.commands - INFO - \U0001f504 Cambiando a modo: GUIDED
+2026-07-25 21:50:31,790 - backend.mavlink.commands - INFO - \u2705 Modo enviado: GUIDED
+2026-07-25 21:50:32,722 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (2/2)
+2026-07-25 21:50:32,722 - backend.mavlink.connection - WARNING - \U0001f480 Zombie TCP connection detected (WSL2?) — forcing reconnect
+2026-07-25 21:50:32,722 - backend.mavlink.connection - INFO - \U0001f50c Conectando a tcp:172.28.252.91:5760 @ 115200 baud (intento 1/1)
+2026-07-25 21:50:32,724 - backend.mavlink.connection - INFO - \u23f3 Esperando heartbeat...
+2026-07-25 21:50:32,791 - backend.mavlink.commands - INFO - Dron ya está armado
+2026-07-25 21:50:33,292 - backend.mavlink.commands - INFO - Enviando MAV_CMD_NAV_TAKEOFF alt=15.0
+2026-07-25 21:50:33,565 - backend.mavlink.connection - INFO - \u2705 Conectado (System: 1, Component: 0)
+2026-07-25 21:50:33,567 - backend.mavlink.connection - INFO - Reconectado (backoff reset a 5s)
+2026-07-25 21:50:33,567 - backend.mavlink.telemetry - INFO - \u23f3 Esperando conexión para solicitar streams...
+2026-07-25 21:50:33,569 - backend.mavlink.telemetry - INFO - \u2705 Streams solicitados al Pixhawk @ 10 Hz (comps=[1, 0])
+2026-07-25 21:50:36,633 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:36,633 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:38,328 - backend.mavlink.connection - WARNING - wait_ack timeout cmd=22 t=5s
+2026-07-25 21:50:38,328 - backend.mavlink.commands - ERROR - \u274c TAKEOFF wait_ack timeout
+2026-07-25 21:50:42,689 - backend.mavlink.telemetry - INFO - \u2705 EKF alignment detected: EKF3 IMU1 MAG0 in-flight yaw alignment complete
+2026-07-25 21:50:43,616 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:50:44,341 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:44,342 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:48,327 - backend.mavlink.telemetry - INFO - COMMAND_ACK stored: cmd=519 result=3
+2026-07-25 21:50:52,049 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:52,049 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:54,413 - backend.mavlink.commands - INFO - \U0001f4cd GOTO — (-35.362762, 149.165237) @ 15.0m
+2026-07-25 21:50:54,422 - backend.mavlink.commands - INFO - \u2705 Waypoint enviado
+2026-07-25 21:50:59,748 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:50:59,749 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:03,685 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:51:07,451 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:07,452 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:13,727 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (2/2)
+2026-07-25 21:51:13,728 - backend.mavlink.connection - WARNING - \U0001f480 Zombie TCP connection detected (WSL2?) — forcing reconnect
+2026-07-25 21:51:13,729 - backend.mavlink.connection - INFO - \U0001f50c Conectando a tcp:172.28.252.91:5760 @ 115200 baud (intento 1/1)
+2026-07-25 21:51:13,730 - backend.mavlink.connection - INFO - \u23f3 Esperando heartbeat...
+2026-07-25 21:51:14,507 - backend.mavlink.commands - INFO - \U0001f4cd GOTO — (-35.362762, 149.165737) @ 15.0m
+2026-07-25 21:51:15,150 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:15,152 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:16,510 - backend.mavlink.commands - INFO - \U0001f504 Cambiando a modo: GUIDED
+2026-07-25 21:51:16,573 - backend.mavlink.connection - INFO - \u2705 Conectado (System: 1, Component: 0)
+2026-07-25 21:51:16,574 - backend.mavlink.connection - INFO - Reconectado (backoff reset a 5s)
+2026-07-25 21:51:16,574 - backend.mavlink.telemetry - INFO - \u23f3 Esperando conexión para solicitar streams...
+2026-07-25 21:51:16,575 - backend.mavlink.telemetry - INFO - \u2705 Streams solicitados al Pixhawk @ 10 Hz (comps=[1, 0])
+2026-07-25 21:51:17,011 - backend.mavlink.commands - INFO - \u2705 Modo enviado: GUIDED
+2026-07-25 21:51:18,012 - backend.mavlink.commands - INFO - \u2705 Waypoint enviado
+2026-07-25 21:51:22,852 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:22,853 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:26,618 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:51:30,551 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:30,552 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:31,854 - backend.mavlink.telemetry - INFO - COMMAND_ACK stored: cmd=519 result=3
+2026-07-25 21:51:38,217 - backend.mavlink.commands - INFO - \U0001f4cd GOTO — (-35.363262, 149.165737) @ 15.0m
+2026-07-25 21:51:38,225 - backend.mavlink.commands - INFO - \u2705 Waypoint enviado
+2026-07-25 21:51:38,263 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:38,264 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:45,962 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:45,963 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:46,943 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:51:53,646 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:53,647 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:51:56,983 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (2/2)
+2026-07-25 21:51:56,983 - backend.mavlink.connection - WARNING - \U0001f480 Zombie TCP connection detected (WSL2?) — forcing reconnect
+2026-07-25 21:51:56,984 - backend.mavlink.connection - INFO - \U0001f50c Conectando a tcp:172.28.252.91:5760 @ 115200 baud (intento 1/1)
+2026-07-25 21:51:56,985 - backend.mavlink.connection - INFO - \u23f3 Esperando heartbeat...
+2026-07-25 21:51:57,580 - backend.mavlink.connection - INFO - \u2705 Conectado (System: 1, Component: 0)
+2026-07-25 21:51:57,580 - backend.mavlink.connection - INFO - Reconectado (backoff reset a 5s)
+2026-07-25 21:51:57,581 - backend.mavlink.telemetry - INFO - \u23f3 Esperando conexión para solicitar streams...
+2026-07-25 21:51:57,581 - backend.mavlink.telemetry - INFO - \u2705 Streams solicitados al Pixhawk @ 10 Hz (comps=[1, 0])
+2026-07-25 21:51:58,364 - backend.mavlink.commands - INFO - \U0001f4cd GOTO — (-35.363262, 149.165237) @ 15.0m
+2026-07-25 21:51:58,578 - backend.mavlink.commands - INFO - \u2705 Waypoint enviado
+2026-07-25 21:52:01,346 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:01,347 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:07,617 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:52:09,056 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:09,057 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:10,910 - backend.mavlink.telemetry - INFO - COMMAND_ACK stored: cmd=519 result=3
+2026-07-25 21:52:16,757 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:16,758 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:18,728 - backend.mavlink.commands - INFO - \U0001f3e0 RTL — Return to Launch
+2026-07-25 21:52:18,728 - backend.mavlink.commands - INFO - \U0001f504 Cambiando a modo: RTL
+2026-07-25 21:52:19,229 - backend.mavlink.commands - INFO - \u2705 Modo enviado: RTL
+2026-07-25 21:52:24,457 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:24,458 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:27,678 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:52:32,164 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:32,165 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:37,728 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (2/2)
+2026-07-25 21:52:37,729 - backend.mavlink.connection - WARNING - \U0001f480 Zombie TCP connection detected (WSL2?) — forcing reconnect
+2026-07-25 21:52:37,729 - backend.mavlink.connection - INFO - \U0001f50c Conectando a tcp:172.28.252.91:5760 @ 115200 baud (intento 1/1)
+2026-07-25 21:52:37,730 - backend.mavlink.connection - INFO - \u23f3 Esperando heartbeat...
+2026-07-25 21:52:38,589 - backend.mavlink.connection - INFO - \u2705 Conectado (System: 1, Component: 0)
+2026-07-25 21:52:38,590 - backend.mavlink.connection - INFO - Reconectado (backoff reset a 5s)
+2026-07-25 21:52:38,590 - backend.mavlink.telemetry - INFO - \u23f3 Esperando conexión para solicitar streams...
+2026-07-25 21:52:38,591 - backend.mavlink.telemetry - INFO - \u2705 Streams solicitados al Pixhawk @ 10 Hz (comps=[1, 0])
+2026-07-25 21:52:39,866 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:39,866 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:47,572 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:47,572 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:48,644 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:52:53,584 - backend.mavlink.telemetry - INFO - COMMAND_ACK stored: cmd=519 result=3
+2026-07-25 21:52:55,260 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:52:55,261 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:02,962 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:02,963 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:08,690 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:53:10,648 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:10,648 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:18,342 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:18,342 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:18,731 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (2/2)
+2026-07-25 21:53:18,731 - backend.mavlink.connection - WARNING - \U0001f480 Zombie TCP connection detected (WSL2?) — forcing reconnect
+2026-07-25 21:53:18,731 - backend.mavlink.connection - INFO - \U0001f50c Conectando a tcp:172.28.252.91:5760 @ 115200 baud (intento 1/1)
+2026-07-25 21:53:18,733 - backend.mavlink.connection - INFO - \u23f3 Esperando heartbeat...
+2026-07-25 21:53:19,593 - backend.mavlink.connection - INFO - \u2705 Conectado (System: 1, Component: 0)
+2026-07-25 21:53:19,594 - backend.mavlink.connection - INFO - Reconectado (backoff reset a 5s)
+2026-07-25 21:53:19,595 - backend.mavlink.telemetry - INFO - \u23f3 Esperando conexión para solicitar streams...
+2026-07-25 21:53:19,595 - backend.mavlink.telemetry - INFO - \u2705 Streams solicitados al Pixhawk @ 10 Hz (comps=[1, 0])
+2026-07-25 21:53:22,423 - backend.mavlink.rc_override - INFO - \u23f9 DISARM — idle cancelado, RC reseteado, envío detenido
+2026-07-25 21:53:26,023 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:26,023 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:29,640 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:53:33,726 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:33,726 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:34,563 - backend.mavlink.telemetry - INFO - COMMAND_ACK stored: cmd=519 result=3
+2026-07-25 21:53:41,416 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:41,416 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:49,116 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:49,117 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:49,703 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:53:56,823 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:56,823 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:53:59,747 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (2/2)
+2026-07-25 21:53:59,748 - backend.mavlink.connection - WARNING - \U0001f480 Zombie TCP connection detected (WSL2?) — forcing reconnect
+2026-07-25 21:53:59,748 - backend.mavlink.connection - INFO - \U0001f50c Conectando a tcp:172.28.252.91:5760 @ 115200 baud (intento 1/1)
+2026-07-25 21:53:59,750 - backend.mavlink.connection - INFO - \u23f3 Esperando heartbeat...
+2026-07-25 21:54:00,599 - backend.mavlink.connection - INFO - \u2705 Conectado (System: 1, Component: 0)
+2026-07-25 21:54:00,600 - backend.mavlink.connection - INFO - Reconectado (backoff reset a 5s)
+2026-07-25 21:54:00,600 - backend.mavlink.telemetry - INFO - \u23f3 Esperando conexión para solicitar streams...
+2026-07-25 21:54:00,601 - backend.mavlink.telemetry - INFO - \u2705 Streams solicitados al Pixhawk @ 10 Hz (comps=[1, 0])
+2026-07-25 21:54:04,529 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:54:04,530 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:54:10,646 - backend.mavlink.connection - WARNING - \u26a0\ufe0f Send probe failed (1/2)
+2026-07-25 21:54:12,233 - backend.db.repository - ERROR - Error saving telemetry: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-07-25 21:54:12,233 - backend.mavlink.telemetry - ERROR - Error guardando telemetría: (psycopg2.OperationalError) could not translate host name "postgres" to address: Host desconocido. 
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
