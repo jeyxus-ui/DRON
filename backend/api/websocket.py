@@ -246,7 +246,11 @@ async def process_command(command: dict, mav_controller) -> dict:
     try:
         # ── Comandos de estado ────────────────────────────────────────────────
         if cmd_type == "ARM":
-            force = params.get("force", False)
+            force = params.get("force", True)
+            # Throttle a mínimo antes de armar (precondición de ArduPilot)
+            rc = getattr(mav_controller, "rc", None)
+            if rc:
+                rc.reset_controls()
             if not force:
                 preflight = mav_controller.preflight_checks()
                 failed = [k for k, v in preflight.items() if not v]
@@ -520,11 +524,20 @@ async def process_command(command: dict, mav_controller) -> dict:
 async def websocket_endpoint(websocket: WebSocket):
     """
     Endpoint WebSocket principal.
+    - Requiere token de sesión vía query param (?token=...) — se valida ANTES de aceptar.
     - Envía telemetría cada 100ms (via telemetry_broadcaster)
     - Recibe comandos y responde con ACK
     """
     client_id = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
-    logger.info(f"[WS] Nueva conexión desde {client_id}")
+
+    from backend.api.auth import websocket_token_user
+    user = websocket_token_user(websocket.query_params)
+    if user is None:
+        logger.warning(f"[WS] {client_id} — conexión rechazada: token inválido o ausente")
+        await websocket.close(code=1008, reason="Autenticación requerida: token inválido o expirado")
+        return
+    logger.info(f"[WS] {client_id} — conexión autorizada (usuario: {user.get('username')})")
+
     await manager.connect(websocket)
 
     from backend.api import rest

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { getWsUrl, getApiUrl, setHostIp } from '../config';
-import { getStoredIp, getMaxAltitude, saveMaxAltitude, getMaxSpeed, saveMaxSpeed } from '../utils/ipConfig';
+import { getWsUrl, setHostIp } from '../config';
+import { getStoredIp, getStoredMaxAltitude, saveMaxAltitude, getStoredMaxSpeed, saveMaxSpeed } from '../utils/ipConfig';
+import { useAuth } from './AuthContext';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 
@@ -233,6 +234,13 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const reconnectAttempt = useRef(0);
   const demoDelayTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Sesión: DroneProvider solo se monta con sesión válida o en demo.
+  const { token: authToken, isDemo } = useAuth();
+  const authTokenRef = useRef(authToken);
+  const isDemoRef    = useRef(isDemo);
+  useEffect(() => { authTokenRef.current = authToken; }, [authToken]);
+  useEffect(() => { isDemoRef.current    = isDemo; }, [isDemo]);
+
   // ── Límites ──────────────────────────────────────────────────────────────
   const [maxAltitude, setMaxAltitudeState] = useState<number>(3);
   const [maxSpeed, setMaxSpeedState] = useState<number>(0.3);
@@ -379,6 +387,10 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     reconnectAttempt.current = 0;
     setConnected(false);
+    if (isDemoRef.current) {
+      startDemo();
+      return;
+    }
     startDemo();
     setTimeout(() => {
       connectWebSocket();
@@ -389,7 +401,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const connectWebSocket = useCallback(() => {
     try {
-      const url = getWsUrl();
+      const url = getWsUrl(authTokenRef.current ?? undefined);
       console.log(`[WS] Conectando a ${url}... (intento ${reconnectAttempt.current + 1})`);
       const newWs = new WebSocket(url);
 
@@ -488,6 +500,11 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
         pendingCommands.current.clear();
 
+        if (event.code === 1008) {
+          pushError('WS_AUTH_REJECTED', 'Sesión rechazada por el servidor — vuelve a iniciar sesión', 'critical');
+          return;
+        }
+
         if (mountedRef.current) {
           // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
           reconnectAttempt.current += 1;
@@ -518,10 +535,15 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     mountedRef.current = true;
     (async () => {
-      const [savedIp, savedMaxAlt, savedMaxSpd] = await Promise.all([getStoredIp(), getMaxAltitude(), getMaxSpeed()]);
+      const [savedIp, savedMaxAlt, savedMaxSpd] = await Promise.all([getStoredIp(), getStoredMaxAltitude(), getStoredMaxSpeed()]);
       setHostIp(savedIp);
       setMaxAltitudeState(savedMaxAlt);
       setMaxSpeedState(savedMaxSpd);
+      if (isDemoRef.current) {
+        console.log('[DEMO] Modo demo — conexión WebSocket omitida');
+        startDemo();
+        return;
+      }
       connectWebSocket();
     })();
     const fallbackTimer = setTimeout(() => {
@@ -745,10 +767,20 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (pitch    !== undefined) rcValues.current.pitch    = pitch;
     if (roll     !== undefined) rcValues.current.roll     = roll;
 
+    const params = { ...rcValues.current };
+    if (params.throttle > 0.5 && telemetryRef.current.altitude >= maxAltitudeRef.current) {
+      params.throttle = 0.5;
+    }
+    const spd = maxSpeedRef.current;
+    if (spd < 1) {
+      params.pitch = Math.max(-spd, Math.min(spd, params.pitch));
+      params.roll  = Math.max(-spd, Math.min(spd, params.roll));
+    }
+
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({
         type:   'RC_CONTROL',
-        params: { ...rcValues.current },
+        params,
       }));
     }
   }, []);

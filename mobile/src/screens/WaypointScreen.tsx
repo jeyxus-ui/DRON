@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  View, Text, TextInput, FlatList, StyleSheet, TouchableOpacity,
+  View, Text, TextInput, StyleSheet, TouchableOpacity,
   Alert, KeyboardAvoidingView, Platform, ScrollView, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDrone } from '../context/DroneContext';
+import { getApiUrl } from '../config';
+import { authFetch } from '../utils/authFetch';
+import { theme } from '../theme';
 import RNFS from 'react-native-fs';
-
-const { width: SCREEN_WIDTH } = require('react-native').Dimensions.get('window');
 
 const WAYPOINTS_DIR = `${RNFS.DocumentDirectoryPath}/GCS/waypoints`;
 
@@ -20,12 +21,9 @@ interface WaypointItem {
 
 let wpCounter = 0;
 
-const VIOLET = '#8B5CF6';
-const VIOLET_LIGHT = '#A78BFA';
-const BG = '#050508';
-const GLASS = 'rgba(20,30,50,0.25)';
-const GLASS_BORDER = 'rgba(255,255,255,0.1)';
-const LABEL = '#666';
+const C = theme.colors;
+const VIOLET = C.primary;
+const VIOLET_LIGHT = C.primaryLight;
 
 export const WaypointScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
@@ -71,7 +69,7 @@ export const WaypointScreen: React.FC = () => {
     if (!connected || demoMode) return;
     let cancelled = false;
     const check = () => {
-      fetch('http://172.20.10.2:8000/api/sensors/status')
+      authFetch(`${getApiUrl()}/api/sensors/status`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (cancelled || !data) return;
@@ -244,8 +242,6 @@ export const WaypointScreen: React.FC = () => {
     setEditIndex(-1);
   };
 
-  const modeColor = '#8B5CF6';
-
   const renderWaypoint = ({ item, index }: { item: WaypointItem; index: number }) => {
     const isNavigating = loading === `goto_${item.id}`;
     return (
@@ -257,15 +253,15 @@ export const WaypointScreen: React.FC = () => {
           <View style={styles.wpCoords}>
             <View style={styles.wpCoordRow}>
               <Text style={styles.wpCoordLabel}>F</Text>
-              <Text style={[styles.wpCoordValue, { color: item.forward > 0 ? VIOLET : LABEL }]}>{formatNum(item.forward)}</Text>
+              <Text style={[styles.wpCoordValue, { color: item.forward > 0 ? VIOLET : C.textMuted }]}>{formatNum(item.forward)}</Text>
             </View>
             <View style={styles.wpCoordRow}>
               <Text style={styles.wpCoordLabel}>R</Text>
-              <Text style={[styles.wpCoordValue, { color: item.right > 0 ? VIOLET : LABEL }]}>{formatNum(item.right)}</Text>
+              <Text style={[styles.wpCoordValue, { color: item.right > 0 ? VIOLET : C.textMuted }]}>{formatNum(item.right)}</Text>
             </View>
             <View style={styles.wpCoordRow}>
               <Text style={styles.wpCoordLabel}>U</Text>
-              <Text style={[styles.wpCoordValue, { color: item.up > 0 ? VIOLET : LABEL }]}>{formatNum(item.up)}</Text>
+              <Text style={[styles.wpCoordValue, { color: item.up > 0 ? VIOLET : C.textMuted }]}>{formatNum(item.up)}</Text>
             </View>
           </View>
         </View>
@@ -310,19 +306,19 @@ export const WaypointScreen: React.FC = () => {
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Text style={styles.headerTitle}>RUTA</Text>
         <View style={styles.headerBadges}>
-          <View style={[styles.hdrBadge, { borderColor: connected ? VIOLET + '66' : '#ff004466' }]}>
-            <View style={[styles.hdrDot, { backgroundColor: connected ? VIOLET : '#ff4444' }]} />
-            <Text style={[styles.hdrBadgeText, { color: connected ? VIOLET : '#ff4444' }]}>
+          <View style={[styles.hdrBadge, { borderColor: connected ? VIOLET_LIGHT + '66' : '#F87171' + '66' }]}>
+            <View style={[styles.hdrDot, { backgroundColor: connected ? VIOLET_LIGHT : '#F87171' }]} />
+            <Text style={[styles.hdrBadgeText, { color: connected ? VIOLET_LIGHT : '#F87171' }]}>
               {connected ? 'ON' : 'OFF'}
             </Text>
           </View>
           {telemetry.armed && (
-            <View style={[styles.hdrBadge, { borderColor: '#ff004466' }]}>
-              <Text style={[styles.hdrBadgeText, { color: '#ff4466' }]}>ARM</Text>
+            <View style={[styles.hdrBadge, { borderColor: '#F87171' + '66' }]}>
+              <Text style={[styles.hdrBadgeText, { color: '#F87171' }]}>ARM</Text>
             </View>
           )}
-          <View style={[styles.hdrBadge, { borderColor: VIOLET + '66' }]}>
-            <Text style={[styles.hdrBadgeText, { color: VIOLET }]}>{waypoints.length} WP</Text>
+          <View style={[styles.hdrBadge, { borderColor: VIOLET_LIGHT + '66' }]}>
+            <Text style={[styles.hdrBadgeText, { color: VIOLET_LIGHT }]}>{waypoints.length} WP</Text>
           </View>
         </View>
       </View>
@@ -332,14 +328,14 @@ export const WaypointScreen: React.FC = () => {
         <View style={styles.sensorBar}>
           <Text style={styles.sensorBarTitle}>SENSORES</Text>
           <View style={styles.sensorChips}>
-            <View style={[styles.sensorChip, { borderColor: telemetry.mtf01_distance != null ? '#14B8A666' : '#333' }]}>
-              <Text style={[styles.sensorChipText, { color: telemetry.mtf01_distance != null ? '#14B8A6' : '#444' }]}>MTF01</Text>
+            <View style={[styles.sensorChip, { borderColor: telemetry.mtf01_distance != null ? C.cyan + '66' : C.hairline }]}>
+              <Text style={[styles.sensorChipText, { color: telemetry.mtf01_distance != null ? C.cyan : C.textDim }]}>MTF01</Text>
             </View>
-            <View style={[styles.sensorChip, { borderColor: (telemetry.lidar_points ?? 0) > 0 ? '#14B8A666' : '#333' }]}>
-              <Text style={[styles.sensorChipText, { color: (telemetry.lidar_points ?? 0) > 0 ? '#14B8A6' : '#444' }]}>LIDAR</Text>
+            <View style={[styles.sensorChip, { borderColor: (telemetry.lidar_points ?? 0) > 0 ? C.cyan + '66' : C.hairline }]}>
+              <Text style={[styles.sensorChipText, { color: (telemetry.lidar_points ?? 0) > 0 ? C.cyan : C.textDim }]}>LIDAR</Text>
             </View>
-            <View style={[styles.sensorChip, { borderColor: telemetry.obstacle_ahead != null ? '#8B5CF666' : '#333' }]}>
-              <Text style={[styles.sensorChipText, { color: telemetry.obstacle_ahead != null ? '#8B5CF6' : '#444' }]}>OBSTÁCULOS</Text>
+            <View style={[styles.sensorChip, { borderColor: telemetry.obstacle_ahead != null ? VIOLET + '66' : C.hairline }]}>
+              <Text style={[styles.sensorChipText, { color: telemetry.obstacle_ahead != null ? VIOLET : C.textDim }]}>OBSTÁCULOS</Text>
             </View>
           </View>
         </View>
@@ -358,7 +354,7 @@ export const WaypointScreen: React.FC = () => {
                 onChangeText={setFwd}
                 keyboardType="numeric"
                 placeholder="F"
-                placeholderTextColor="#444"
+                placeholderTextColor={C.textDim}
                 returnKeyType="next"
                 onSubmitEditing={() => rightRef.current?.focus()}
               />
@@ -372,7 +368,7 @@ export const WaypointScreen: React.FC = () => {
                 onChangeText={setRight}
                 keyboardType="numeric"
                 placeholder="R"
-                placeholderTextColor="#444"
+                placeholderTextColor={C.textDim}
                 returnKeyType="next"
                 onSubmitEditing={() => upRef.current?.focus()}
               />
@@ -386,7 +382,7 @@ export const WaypointScreen: React.FC = () => {
                 onChangeText={setUp}
                 keyboardType="numeric"
                 placeholder="U"
-                placeholderTextColor="#444"
+                placeholderTextColor={C.textDim}
                 returnKeyType="done"
               />
               <Text style={styles.inputSuffix}>m</Text>
@@ -419,7 +415,7 @@ export const WaypointScreen: React.FC = () => {
               value={routeName}
               onChangeText={setRouteName}
               placeholder="Nombre de ruta"
-              placeholderTextColor="#444"
+              placeholderTextColor={C.textDim}
               returnKeyType="done"
               onSubmitEditing={doSaveRoute}
             />
@@ -553,7 +549,7 @@ export const WaypointScreen: React.FC = () => {
                   onChangeText={setEditFwd}
                   keyboardType="numeric"
                   placeholder="0"
-                  placeholderTextColor="#444"
+                  placeholderTextColor={C.textDim}
                   returnKeyType="next"
                   onSubmitEditing={() => editModalRightRef.current?.focus()}
                 />
@@ -568,7 +564,7 @@ export const WaypointScreen: React.FC = () => {
                   onChangeText={setEditRight}
                   keyboardType="numeric"
                   placeholder="0"
-                  placeholderTextColor="#444"
+                  placeholderTextColor={C.textDim}
                   returnKeyType="next"
                   onSubmitEditing={() => editModalUpRef.current?.focus()}
                 />
@@ -583,7 +579,7 @@ export const WaypointScreen: React.FC = () => {
                   onChangeText={setUpEdit}
                   keyboardType="numeric"
                   placeholder="0"
-                  placeholderTextColor="#444"
+                  placeholderTextColor={C.textDim}
                   returnKeyType="done"
                   onSubmitEditing={saveEditModal}
                 />
@@ -609,7 +605,7 @@ export const WaypointScreen: React.FC = () => {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: BG,
+    backgroundColor: C.bg,
   },
   body: {
     flex: 1,
@@ -623,15 +619,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: 'rgba(20,30,50,0.2)',
+    backgroundColor: C.surface,
     borderBottomWidth: 1,
-    borderBottomColor: GLASS_BORDER,
+    borderBottomColor: C.hairline,
     gap: 8,
   },
   sensorBarTitle: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#444',
+    color: C.textDim,
     letterSpacing: 1,
   },
   sensorChips: {
@@ -643,7 +639,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
-    backgroundColor: 'rgba(10,15,25,0.5)',
+    backgroundColor: C.bgElevated,
   },
   sensorChipText: {
     fontSize: 9,
@@ -658,18 +654,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingBottom: 10,
-    backgroundColor: GLASS,
+    backgroundColor: C.navy,
     borderBottomWidth: 1.5,
-    borderBottomColor: GLASS_BORDER,
+    borderBottomColor: C.navyElevated,
   },
   headerTitle: {
-    color: '#fff',
+    color: C.surface,
     fontSize: 22,
     fontWeight: '900',
     letterSpacing: 4,
-    textShadowColor: VIOLET,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 8,
   },
   headerBadges: {
     flexDirection: 'row',
@@ -684,16 +677,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   hdrDot: {
     width: 5,
     height: 5,
     borderRadius: 3,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
-    elevation: 4,
   },
   hdrBadgeText: {
     fontSize: 8,
@@ -703,9 +692,9 @@ const styles = StyleSheet.create({
 
   // ── INPUT PANEL ──
   inputPanel: {
-    backgroundColor: GLASS,
+    backgroundColor: C.surface,
     borderWidth: 1.5,
-    borderColor: GLASS_BORDER,
+    borderColor: C.hairline,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -720,14 +709,14 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: C.bgElevated,
     borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: 'rgba(139,92,246,0.3)',
+    borderColor: VIOLET + '55',
   },
   input: {
     flex: 1,
-    color: '#fff',
+    color: C.text,
     fontSize: 16,
     fontWeight: '900',
     textAlign: 'center',
@@ -736,7 +725,7 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
   inputSuffix: {
-    color: LABEL,
+    color: C.textMuted,
     fontSize: 9,
     fontWeight: '700',
     marginRight: 6,
@@ -745,32 +734,24 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: VIOLET + '20',
+    backgroundColor: C.primaryDim,
     borderWidth: 1.5,
     borderColor: VIOLET + '88',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 6,
   },
   addBtnText: {
     color: VIOLET,
     fontSize: 22,
     fontWeight: '900',
     lineHeight: 24,
-    textShadowColor: VIOLET,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4,
   },
 
   // ── CURRENT ROUTE BANNER ──
   routeBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(139,92,246,0.12)',
+    backgroundColor: VIOLET + '1A',
     borderWidth: 1.5,
     borderColor: VIOLET + '55',
     borderRadius: 10,
@@ -778,14 +759,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 6,
     gap: 8,
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 3,
   },
   routeBannerLabel: {
-    color: LABEL,
+    color: C.textMuted,
     fontSize: 7,
     fontWeight: '800',
     letterSpacing: 1,
@@ -796,21 +772,18 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     flex: 1,
     fontFamily: 'monospace',
-    textShadowColor: VIOLET,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4,
   },
   routeBannerClose: {
-    color: '#ff4466',
+    color: C.danger,
     fontSize: 12,
     fontWeight: '900',
   },
 
   // ── PERSIST (SAVE/UPDATE) ──
   persistCard: {
-    backgroundColor: GLASS,
+    backgroundColor: C.surface,
     borderWidth: 1.5,
-    borderColor: GLASS_BORDER,
+    borderColor: C.hairline,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -823,13 +796,13 @@ const styles = StyleSheet.create({
   },
   persistInput: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: C.bgElevated,
     borderWidth: 1.5,
-    borderColor: 'rgba(139,92,246,0.3)',
+    borderColor: VIOLET + '55',
     borderRadius: 10,
     paddingVertical: 8,
     paddingHorizontal: 10,
-    color: '#fff',
+    color: C.text,
     fontSize: 12,
     fontWeight: '700',
     fontFamily: 'monospace',
@@ -841,39 +814,29 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(20,30,50,0.3)',
+    backgroundColor: C.surface,
   },
   saveBtn: {
     borderColor: VIOLET + '66',
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
   },
   updateBtn: {
     borderColor: VIOLET_LIGHT + '88',
     backgroundColor: VIOLET_LIGHT + '20',
-    shadowColor: VIOLET_LIGHT,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
   },
   persistBtnText: {
-    color: '#fff',
+    color: C.text,
     fontSize: 14,
     fontWeight: '800',
   },
   persistHint: {
-    color: '#555',
+    color: C.textMuted,
     fontSize: 7,
     fontWeight: '700',
     letterSpacing: 0.5,
     marginTop: 4,
   },
   savedSectionTitle: {
-    color: '#888',
+    color: C.textMuted,
     fontSize: 8,
     fontWeight: '800',
     letterSpacing: 1.5,
@@ -886,12 +849,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: C.bgElevated,
     borderRadius: 10,
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: 'rgba(139,92,246,0.15)',
+    borderColor: VIOLET + '33',
   },
   savedRowActive: {
     borderColor: VIOLET + '55',
@@ -908,14 +871,9 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: VIOLET,
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
-    elevation: 4,
   },
   savedName: {
-    color: '#ccc',
+    color: C.textMuted,
     fontSize: 11,
     fontWeight: '700',
     fontFamily: 'monospace',
@@ -939,18 +897,13 @@ const styles = StyleSheet.create({
   savedEditBtn: {
     borderColor: VIOLET_LIGHT + '88',
     backgroundColor: VIOLET_LIGHT + '20',
-    shadowColor: VIOLET_LIGHT,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
   savedDelBtn: {
-    borderColor: 'rgba(255,68,102,0.5)',
-    backgroundColor: 'rgba(255,68,102,0.12)',
+    borderColor: C.danger + '80',
+    backgroundColor: C.danger + '1F',
   },
   savedActionText: {
-    color: '#fff',
+    color: C.text,
     fontSize: 11,
     fontWeight: '800',
   },
@@ -966,16 +919,13 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   listTitle: {
-    color: '#aaa',
+    color: C.textMuted,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.5,
-    textShadowColor: VIOLET,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4,
   },
   clearBtn: {
-    color: '#ff4466',
+    color: C.danger,
     fontSize: 8,
     fontWeight: '800',
     letterSpacing: 1,
@@ -986,27 +936,22 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   emptyIcon: { fontSize: 28 },
-  emptyTitle: { color: '#555', fontSize: 12, fontWeight: '700' },
-  emptySub: { color: '#333', fontSize: 10, fontWeight: '600' },
-  emptySub2: { color: '#333', fontSize: 10, fontWeight: '600', marginTop: 2 },
+  emptyTitle: { color: C.textMuted, fontSize: 12, fontWeight: '700' },
+  emptySub: { color: C.textDim, fontSize: 10, fontWeight: '600' },
+  emptySub2: { color: C.textDim, fontSize: 10, fontWeight: '600', marginTop: 2 },
 
   // ── WAYPOINT CARD ──
   wpCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: GLASS,
+    backgroundColor: C.surface,
     borderWidth: 1.5,
-    borderColor: 'rgba(139,92,246,0.25)',
+    borderColor: VIOLET + '40',
     borderRadius: 14,
     paddingVertical: 8,
     paddingHorizontal: 12,
     marginBottom: 5,
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
   },
   wpCardLeft: {
     flexDirection: 'row',
@@ -1027,9 +972,6 @@ const styles = StyleSheet.create({
     color: VIOLET,
     fontSize: 11,
     fontWeight: '900',
-    textShadowColor: VIOLET,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 3,
   },
   wpCoords: {
     flex: 1,
@@ -1041,7 +983,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wpCoordLabel: {
-    color: LABEL,
+    color: C.textMuted,
     fontSize: 8,
     fontWeight: '800',
     width: 12,
@@ -1069,27 +1011,17 @@ const styles = StyleSheet.create({
   wpEditBtn: {
     borderColor: VIOLET_LIGHT + '66',
     backgroundColor: VIOLET_LIGHT + '15',
-    shadowColor: VIOLET_LIGHT,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
   wpGotoBtn: {
     borderColor: VIOLET + '66',
     backgroundColor: VIOLET + '15',
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 4,
   },
   wpDelBtn: {
-    borderColor: 'rgba(255,68,102,0.5)',
-    backgroundColor: 'rgba(255,68,102,0.12)',
+    borderColor: C.danger + '80',
+    backgroundColor: C.danger + '1F',
   },
   wpCardBtnText: {
-    color: '#fff',
+    color: C.text,
     fontSize: 11,
     fontWeight: '800',
   },
@@ -1108,30 +1040,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    backgroundColor: GLASS,
+    backgroundColor: C.surface,
     gap: 4,
   },
   actionStart: {
     borderColor: VIOLET_LIGHT + '55',
-    shadowColor: VIOLET_LIGHT,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   actionClear: {
-    borderColor: 'rgba(255,68,102,0.5)',
-    shadowColor: '#ff4466',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    borderColor: C.danger + '80',
   },
   actionIcon: {
     fontSize: 16,
   },
   actionLabel: {
-    color: '#fff',
+    color: C.text,
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1.5,
@@ -1147,27 +1069,19 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: '100%',
-    backgroundColor: 'rgba(15,20,35,0.95)',
+    backgroundColor: C.surface,
     borderWidth: 1.5,
     borderColor: VIOLET + '66',
     borderRadius: 18,
     padding: 20,
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
   },
   modalTitle: {
-    color: '#fff',
+    color: C.text,
     fontSize: 14,
     fontWeight: '900',
     letterSpacing: 2,
     textAlign: 'center',
     marginBottom: 16,
-    textShadowColor: VIOLET,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 6,
   },
   modalInputRow: {
     flexDirection: 'row',
@@ -1180,18 +1094,18 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   modalInputLabel: {
-    color: LABEL,
+    color: C.textMuted,
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1,
   },
   modalInput: {
     width: '100%',
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: C.bgElevated,
     borderWidth: 1.5,
     borderColor: VIOLET + '44',
     borderRadius: 10,
-    color: '#fff',
+    color: C.text,
     fontSize: 18,
     fontWeight: '900',
     textAlign: 'center',
@@ -1200,7 +1114,7 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
   modalInputUnit: {
-    color: LABEL,
+    color: C.textMuted,
     fontSize: 8,
     fontWeight: '700',
   },
@@ -1213,12 +1127,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: C.hairlineStrong,
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: C.glass,
   },
   modalCancelText: {
-    color: '#888',
+    color: C.textMuted,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.5,
@@ -1230,20 +1144,12 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: VIOLET + '88',
     alignItems: 'center',
-    backgroundColor: VIOLET + '20',
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
+    backgroundColor: C.primaryDim,
   },
   modalSaveText: {
     color: VIOLET,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.5,
-    textShadowColor: VIOLET,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4,
   },
 });

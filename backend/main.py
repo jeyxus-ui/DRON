@@ -1,15 +1,37 @@
 # backend/main.py
+import os
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
-from backend.api import rest, websocket, camera_stream
+from backend.api import auth, rest, websocket, camera_stream
 from backend.config import API_HOST, API_PORT, LOG_LEVEL, MAVLINK_BAUD, detect_mavlink_device
 try:
     from sqlalchemy import text
 except ImportError:
     text = lambda x: x
-    logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
+
+
+def _seed_default_admin() -> None:
+    """Crea el admin inicial si no existe ningún usuario (primer arranque)."""
+    try:
+        if auth.store.list_users():
+            return
+        username = os.getenv('ADMIN_USERNAME', 'admin')
+        password = os.getenv('ADMIN_PASSWORD', 'admin123')
+        auth.ensure_admin_user(username, password)
+        if password == 'admin123':
+            logger.warning(
+                "🔑 Usuario admin creado con contraseña por defecto. "
+                "Cámbiala con: python backend/create_user.py %s <nueva_password> --role admin",
+                username,
+            )
+        else:
+            logger.info("✅ Usuario admin '%s' creado", username)
+    except Exception as e:
+        logger.error("Error creando admin inicial: %s", e)
     logger.warning("SQLAlchemy no instalado, funciones de BD deshabilitadas")
 
 logging.basicConfig(
@@ -35,6 +57,7 @@ app.add_middleware(
 )
 
 # Incluir rutas
+app.include_router(auth.router)  # /api/auth/* (prefix propio)
 app.include_router(rest.router, prefix="/api", tags=["drone"])
 app.include_router(websocket.router)  # WebSocket no lleva prefix
 app.include_router(camera_stream.router)  # Ya tiene su propio prefix
@@ -43,6 +66,7 @@ app.include_router(camera_stream.router)  # Ya tiene su propio prefix
 @app.on_event("startup")
 def startup_event():
     try:
+        _seed_default_admin()
         device = detect_mavlink_device()
         logger.info(f"Selected MAVLink device: {device}")
         rest.init_mav(device, MAVLINK_BAUD)

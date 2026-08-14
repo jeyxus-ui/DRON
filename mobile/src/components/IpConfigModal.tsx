@@ -4,9 +4,12 @@ import {
 } from 'react-native';
 import { getStoredIp, saveIp, getStoredMaxAltitude, saveMaxAltitude } from '../utils/ipConfig';
 import { getApiUrl, setMaxAltitude } from '../config';
+import { authFetch } from '../utils/authFetch';
+import { theme } from '../theme';
 
-const VIOLET = '#8B5CF6';
-const LABEL = '#666';
+const C = theme.colors;
+const VIOLET = C.primary;
+const LABEL = C.textMuted;
 
 interface Props {
   visible: boolean;
@@ -41,7 +44,8 @@ export const IpConfigModal: React.FC<Props> = ({ visible, onClose }) => {
     await saveMaxAltitude(altNum);
     setMaxAltitude(altNum);
     try {
-      await fetch(`${getApiUrl()}/api/diag/param/set?name=FENCE_ALT_MAX&value=${altNum}`, { method: 'POST' });
+      await authFetch(`${getApiUrl()}/api/diag/param/set?name=FENCE_ENABLE&value=1`, { method: 'POST' });
+      await authFetch(`${getApiUrl()}/api/diag/param/set?name=FENCE_ALT_MAX&value=${altNum}`, { method: 'POST' });
     } catch {
       // backend puede estar offline, se aplicará al reconectar
     }
@@ -60,7 +64,7 @@ export const IpConfigModal: React.FC<Props> = ({ visible, onClose }) => {
             onChangeText={setIp}
             keyboardType="decimal-pad"
             placeholder="192.168.1.100"
-            placeholderTextColor="#444"
+            placeholderTextColor={C.textDim}
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="next"
@@ -73,7 +77,7 @@ export const IpConfigModal: React.FC<Props> = ({ visible, onClose }) => {
             onChangeText={setMaxAlt}
             keyboardType="number-pad"
             placeholder="100"
-            placeholderTextColor="#444"
+            placeholderTextColor={C.textDim}
             returnKeyType="done"
           />
           <Text style={styles.hint}>La app se reconectará automáticamente al guardar la IP</Text>
@@ -101,27 +105,19 @@ const styles = StyleSheet.create({
   },
   content: {
     width: '100%',
-    backgroundColor: 'rgba(15,20,35,0.95)',
+    backgroundColor: C.surface,
     borderWidth: 1.5,
     borderColor: VIOLET + '66',
     borderRadius: 18,
     padding: 20,
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
   },
   title: {
-    color: '#fff',
+    color: C.text,
     fontSize: 13,
     fontWeight: '900',
     letterSpacing: 2,
     textAlign: 'center',
     marginBottom: 14,
-    textShadowColor: VIOLET,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 6,
   },
   label: {
     color: LABEL,
@@ -131,11 +127,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   input: {
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: C.bgElevated,
     borderWidth: 1.5,
     borderColor: VIOLET + '44',
     borderRadius: 10,
-    color: '#fff',
+    color: C.text,
     fontSize: 18,
     fontWeight: '900',
     textAlign: 'center',
@@ -144,7 +140,7 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
   hint: {
-    color: '#555',
+    color: C.textDim,
     fontSize: 8,
     fontWeight: '600',
     textAlign: 'center',
@@ -166,12 +162,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: C.hairlineStrong,
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: C.glass,
   },
   cancelText: {
-    color: '#888',
+    color: C.textMuted,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.5,
@@ -183,20 +179,12 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: VIOLET + '88',
     alignItems: 'center',
-    backgroundColor: VIOLET + '20',
-    shadowColor: VIOLET,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
+    backgroundColor: C.primaryDim,
   },
   saveText: {
     color: VIOLET,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.5,
-    textShadowColor: VIOLET,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4,
   },
 });

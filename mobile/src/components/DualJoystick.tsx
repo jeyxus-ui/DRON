@@ -1,9 +1,10 @@
 import React, { useRef, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Animated, GestureResponderEvent } from 'react-native';
+import { View, Text, StyleSheet, Animated, GestureResponderEvent } from 'react-native';
 
 interface DualJoystickProps {
   onLeftMove: (x: number, y: number) => void;
   onRightMove: (x: number, y: number) => void;
+  onLeftTouchActive?: (active: boolean) => void;
   leftSize: number;
   rightSize: number;
   leftColor?: string;
@@ -11,12 +12,10 @@ interface DualJoystickProps {
   leftResetToBottom?: boolean;
 }
 
-const DEADZONE_X = 0.05;
-const DEADZONE_Y = 0.04;
-
 export const DualJoystick: React.FC<DualJoystickProps> = ({
   onLeftMove,
   onRightMove,
+  onLeftTouchActive,
   leftSize,
   rightSize,
   leftColor = '#FF8800',
@@ -30,7 +29,7 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
   const leftStickR = leftSize / 4;
   const leftMaxDist = leftSize / 2 - leftStickR;
   const leftAnimX = useRef(new Animated.Value(0)).current;
-  const leftAnimY = useRef(new Animated.Value(leftMaxDist)).current;
+  const leftAnimY = useRef(new Animated.Value(0)).current;
 
   const rightStickR = rightSize / 4;
   const rightMaxDist = rightSize / 2 - rightStickR;
@@ -38,6 +37,13 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
   const rightAnimY = useRef(new Animated.Value(0)).current;
 
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+  const hasLeftTouch = () => {
+    for (const info of activeTouches.current.values()) {
+      if (info.side === 'left') return true;
+    }
+    return false;
+  };
 
   const getCenter = (side: 'left' | 'right') => {
     const { x, y, w, h } = containerPos.current;
@@ -48,45 +54,36 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
 
   const normalizeLeft = useCallback((pageX: number, pageY: number) => {
     const { cx, cy } = getCenter('left');
-    let dx = pageX - cx;
-    let dy = pageY - cy;
+    const dx = pageX - cx;
+    const dy = pageY - cy;
 
-    let ty = clamp(dy, -leftMaxDist, leftMaxDist);
-    const maxX = Math.sqrt(Math.max(0, leftMaxDist * leftMaxDist - ty * ty));
-    let tx = clamp(dx, -maxX, maxX);
+    const tx = clamp(dx, -leftMaxDist, leftMaxDist);
+    const ty = clamp(dy, -leftMaxDist, leftMaxDist);
 
     leftAnimX.setValue(tx);
     leftAnimY.setValue(ty);
 
-    let yawNorm = tx / leftMaxDist;
-    let throttleNorm = (leftMaxDist - ty) / (2 * leftMaxDist);
-    if (Math.abs(yawNorm) < DEADZONE_X) yawNorm = 0;
-    if (throttleNorm < DEADZONE_Y) throttleNorm = 0;
+    const x = tx / leftMaxDist;        // derecha = +roll
+    const y = -ty / leftMaxDist;       // arriba = +throttle
 
-    onLeftMove(yawNorm, throttleNorm);
+    onLeftMove(x, y);
   }, [leftMaxDist, leftAnimX, leftAnimY, onLeftMove]);
 
   const normalizeRight = useCallback((pageX: number, pageY: number) => {
     const { cx, cy } = getCenter('right');
-    let dx = pageX - cx;
-    let dy = pageY - cy;
+    const dx = pageX - cx;
+    const dy = pageY - cy;
 
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > rightMaxDist) {
-      const angle = Math.atan2(dy, dx);
-      dx = Math.cos(angle) * rightMaxDist;
-      dy = Math.sin(angle) * rightMaxDist;
-    }
+    const dxClamped = clamp(dx, -rightMaxDist, rightMaxDist);
+    const dyClamped = clamp(dy, -rightMaxDist, rightMaxDist);
 
-    rightAnimX.setValue(dx);
-    rightAnimY.setValue(dy);
+    rightAnimX.setValue(dxClamped);
+    rightAnimY.setValue(dyClamped);
 
-    let nx = dx / rightMaxDist;
-    let ny = -dy / rightMaxDist;
-    if (Math.abs(nx) < DEADZONE_X) nx = 0;
-    if (Math.abs(ny) < DEADZONE_Y) ny = 0;
+    const x = dxClamped / rightMaxDist;  // derecha = +yaw
+    const y = -dyClamped / rightMaxDist; // arriba = +pitch
 
-    onRightMove(nx, ny);
+    onRightMove(x, y);
   }, [rightMaxDist, rightAnimX, rightAnimY, onRightMove]);
 
   const handleTouchStart = useCallback((e: GestureResponderEvent) => {
@@ -105,11 +102,15 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
       for (const t of snapshot) {
         const side = t.pageX < midX ? 'left' : 'right';
         activeTouches.current.set(t.id, { side });
-        if (side === 'left') normalizeLeft(t.pageX, t.pageY);
-        else normalizeRight(t.pageX, t.pageY);
+        if (side === 'left') {
+          onLeftTouchActive?.(true);
+          normalizeLeft(t.pageX, t.pageY);
+        } else {
+          normalizeRight(t.pageX, t.pageY);
+        }
       }
     });
-  }, [normalizeLeft, normalizeRight]);
+  }, [normalizeLeft, normalizeRight, onLeftTouchActive]);
 
   const handleTouchMove = useCallback((e: GestureResponderEvent) => {
     const changed = e.nativeEvent.changedTouches;
@@ -135,9 +136,14 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
       activeTouches.current.delete(t.identifier);
 
       if (info.side === 'left') {
-        Animated.spring(leftAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }).start();
-        Animated.spring(leftAnimY, { toValue: leftMaxDist, useNativeDriver: true, tension: 150, friction: 10 }).start();
-        onLeftMove(0, 0);
+        if (!hasLeftTouch()) {
+          onLeftTouchActive?.(false);
+          Animated.parallel([
+            Animated.spring(leftAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
+            Animated.spring(leftAnimY, { toValue: leftMaxDist, useNativeDriver: true, tension: 150, friction: 10 }),
+          ]).start();
+          onLeftMove(0, -1);
+        }
       } else {
         Animated.parallel([
           Animated.spring(rightAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
@@ -146,15 +152,17 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
         onRightMove(0, 0);
       }
     }
-  }, [leftMaxDist, leftAnimX, leftAnimY, rightAnimX, rightAnimY, onLeftMove, onRightMove]);
+  }, [leftMaxDist, leftAnimX, leftAnimY, rightAnimX, rightAnimY, onLeftMove, onRightMove, onLeftTouchActive]);
 
   useEffect(() => {
     if (leftResetToBottom) {
       leftAnimX.stopAnimation();
       leftAnimY.stopAnimation();
-      Animated.spring(leftAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }).start();
-      Animated.spring(leftAnimY, { toValue: leftMaxDist, useNativeDriver: true, tension: 150, friction: 10 }).start();
-      onLeftMove(0, 0);
+      Animated.parallel([
+        Animated.spring(leftAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
+        Animated.spring(leftAnimY, { toValue: leftMaxDist, useNativeDriver: true, tension: 150, friction: 10 }),
+      ]).start();
+      onLeftMove(0, -1);
     }
   }, [leftResetToBottom]);
 
@@ -173,24 +181,34 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
     showThrottle: boolean,
   ) => {
     const stickR = size / 4;
+    const axisLabel = side === 'left' ? 'THR · ROLL' : 'PITCH · YAW';
     return (
-      <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
-        <View style={[styles.base, { width: size, height: size, borderRadius: size / 2, borderColor: color + '4D' }]}>
-          <View style={[styles.line, styles.lineV, { backgroundColor: color + '33' }]} />
-          <View style={[styles.line, styles.lineH, { backgroundColor: color + '33' }]} />
-          <View style={[styles.centerDot, { backgroundColor: color + '80' }]} />
-          {showThrottle && (
-            <View style={[styles.throttleTrack, { borderColor: color + '40' }]}>
-              <Animated.View style={[styles.throttleFill, { backgroundColor: color, transform: [{ scaleY: leftThrottleScale }] }]} />
-            </View>
-          )}
+      <View style={{ width: size, height: size + 28, justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+          <View style={[styles.base, { width: size, height: size, borderRadius: size / 2, borderColor: color + '4D' }]}>
+            <View style={[styles.ring, { width: size * 0.6, height: size * 0.6, borderRadius: size * 0.3, borderColor: color + '26' }]} />
+            <View style={[styles.deadzone, { width: size * 0.1, height: size * 0.1, borderRadius: size * 0.05, borderColor: color + '40' }]} />
+            <View style={[styles.line, styles.lineV, { backgroundColor: color + '33' }]} />
+            <View style={[styles.line, styles.lineH, { backgroundColor: color + '33' }]} />
+            <View style={[styles.tick, styles.tickTop, { backgroundColor: color + '59' }]} />
+            <View style={[styles.tick, styles.tickBottom, { backgroundColor: color + '59' }]} />
+            <View style={[styles.tick, styles.tickLeft, { backgroundColor: color + '59' }]} />
+            <View style={[styles.tick, styles.tickRight, { backgroundColor: color + '59' }]} />
+            <View style={[styles.centerDot, { backgroundColor: color + '80' }]} />
+            {showThrottle && (
+              <View style={[styles.throttleTrack, { borderColor: color + '40' }]}>
+                <Animated.View style={[styles.throttleFill, { backgroundColor: color, transform: [{ scaleY: leftThrottleScale }] }]} />
+              </View>
+            )}
+          </View>
+          <Animated.View style={[styles.stick, {
+            width: stickR * 2, height: stickR * 2, borderRadius: stickR, backgroundColor: color,
+            transform: [{ translateX: animX }, { translateY: animY }],
+          }]}>
+            <View style={styles.stickInner} />
+          </Animated.View>
         </View>
-        <Animated.View style={[styles.stick, {
-          width: stickR * 2, height: stickR * 2, borderRadius: stickR, backgroundColor: color,
-          transform: [{ translateX: animX }, { translateY: animY }],
-        }]}>
-          <View style={styles.stickInner} />
-        </Animated.View>
+        <Text style={[styles.label, { color }]}>{axisLabel}</Text>
       </View>
     );
   };
@@ -229,6 +247,29 @@ const styles = StyleSheet.create({
   lineV: { width: 2, height: '80%' },
   lineH: { width: '80%', height: 2 },
   centerDot: { width: 8, height: 8, borderRadius: 4 },
+  ring: {
+    position: 'absolute',
+    borderWidth: 1.5,
+  },
+  deadzone: {
+    position: 'absolute',
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    opacity: 0.8,
+  },
+  tick: { position: 'absolute', borderRadius: 1 },
+  tickTop: { width: 3, height: 10, top: '8%' },
+  tickBottom: { width: 3, height: 10, bottom: '8%' },
+  tickLeft: { width: 10, height: 3, left: '8%' },
+  tickRight: { width: 10, height: 3, right: '8%' },
+  label: {
+    position: 'absolute',
+    bottom: 2,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    opacity: 0.85,
+  },
   throttleTrack: {
     position: 'absolute',
     right: 10,

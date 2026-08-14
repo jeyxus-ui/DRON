@@ -6,19 +6,22 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDrone, AppError } from '../context/DroneContext';
 import { getErrorHelp } from '../utils/errorHelp';
+import { theme } from '../theme';
+
+const C = theme.colors;
 
 const SEVERITY_COLORS: Record<string, string> = {
-  info: '#00B4D8',
-  warn: '#ffaa00',
-  error: '#ff6644',
-  critical: '#ff0044',
+  info: C.cyan,
+  warn: C.warning,
+  error: C.danger,
+  critical: '#B91C1C',
 };
 
 const SEVERITY_BG: Record<string, string> = {
-  info: 'rgba(0,180,216,0.15)',
-  warn: 'rgba(255,170,0,0.15)',
-  error: 'rgba(255,102,68,0.15)',
-  critical: 'rgba(255,0,68,0.15)',
+  info: C.cyanDim,
+  warn: 'rgba(217,119,6,0.12)',
+  error: C.dangerDim,
+  critical: 'rgba(185,28,28,0.12)',
 };
 
 const TIME_OPTS: Intl.DateTimeFormatOptions = {
@@ -26,8 +29,8 @@ const TIME_OPTS: Intl.DateTimeFormatOptions = {
 };
 
 const ErrorRow: React.FC<{ error: AppError }> = ({ error }) => {
-  const color = SEVERITY_COLORS[error.severity] ?? '#888';
-  const bg = SEVERITY_BG[error.severity] ?? 'rgba(100,100,100,0.1)';
+  const color = SEVERITY_COLORS[error.severity] ?? C.textMuted;
+  const bg = SEVERITY_BG[error.severity] ?? 'rgba(75,90,111,0.10)';
   const time = new Date(error.timestamp).toLocaleTimeString('es-CO', TIME_OPTS);
   const [expanded, setExpanded] = useState(false);
   const help = getErrorHelp(error.code);
@@ -93,7 +96,7 @@ export const ErrorHistoryModal: React.FC = () => {
       >
         <Text style={styles.fabIcon}>⚠️</Text>
         {totalActive > 0 && (
-          <View style={[styles.fabBadge, totalCritical > 0 && { backgroundColor: '#ff0044' }]}>
+          <View style={[styles.fabBadge, totalCritical > 0 && { backgroundColor: C.danger }]}>
             <Text style={styles.fabBadgeText}>{totalActive}</Text>
           </View>
         )}
@@ -119,7 +122,7 @@ export const ErrorHistoryModal: React.FC = () => {
             {/* Stats */}
             <View style={styles.stats}>
               <View style={styles.statItem}>
-                <Text style={[styles.statValue, totalActive > 0 && { color: '#ff6644' }]}>{totalActive}</Text>
+                <Text style={[styles.statValue, totalActive > 0 && { color: C.danger }]}>{totalActive}</Text>
                 <Text style={styles.statLabel}>activos</Text>
               </View>
               <View style={styles.statItem}>
@@ -158,14 +161,14 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(10,10,25,0.85)',
+    backgroundColor: C.navy,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
-    shadowColor: '#000',
+    borderColor: 'rgba(255,255,255,0.3)',
+    shadowColor: C.text,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 999,
     zIndex: 999,
@@ -178,7 +181,7 @@ const styles = StyleSheet.create({
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#ffaa00',
+    backgroundColor: C.warning,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,
@@ -187,12 +190,12 @@ const styles = StyleSheet.create({
 
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modal: {
     flex: 1,
-    backgroundColor: '#0a0a14',
+    backgroundColor: C.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   },
@@ -203,10 +206,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: C.hairline,
   },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#eee' },
-  closeBtn: { fontSize: 20, color: '#666', padding: 4 },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: C.text },
+  closeBtn: { fontSize: 20, color: C.textDim, padding: 4 },
 
   stats: {
     flexDirection: 'row',
@@ -216,16 +219,16 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   statItem: { alignItems: 'center' },
-  statValue: { fontSize: 18, fontWeight: '800', color: '#fff' },
-  statLabel: { fontSize: 9, color: '#666', marginTop: 1 },
+  statValue: { fontSize: 18, fontWeight: '800', color: C.text },
+  statLabel: { fontSize: 9, color: C.textDim, marginTop: 1 },
   clearBtn: {
     marginLeft: 'auto',
-    backgroundColor: 'rgba(255,0,68,0.15)',
+    backgroundColor: C.dangerDim,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
   },
-  clearBtnText: { fontSize: 12, fontWeight: '700', color: '#ff6644' },
+  clearBtnText: { fontSize: 12, fontWeight: '700', color: C.danger },
 
   list: { paddingHorizontal: 14, paddingBottom: 20 },
   row: {
@@ -250,27 +253,27 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   rowCode: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  rowTime: { fontSize: 9, color: '#555' },
-  rowMessage: { fontSize: 13, fontWeight: '600', color: '#ccc' },
-  rowDetail: { fontSize: 11, color: '#777', marginTop: 2 },
+  rowTime: { fontSize: 9, color: C.textDim },
+  rowMessage: { fontSize: 13, fontWeight: '600', color: C.text },
+  rowDetail: { fontSize: 11, color: C.textMuted, marginTop: 2 },
   helpBox: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: C.bgElevated,
     borderRadius: 8,
     padding: 10,
     marginTop: 8,
     borderLeftWidth: 2,
-    borderLeftColor: '#FF8800',
+    borderLeftColor: C.warning,
   },
   helpLabel: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#FF8800',
+    color: C.warning,
     letterSpacing: 1,
     marginBottom: 3,
   },
   helpText: {
     fontSize: 12,
-    color: '#bbb',
+    color: C.textMuted,
     lineHeight: 17,
   },
   rowFooter: {
@@ -282,7 +285,7 @@ const styles = StyleSheet.create({
   tapHint: {
     marginLeft: 'auto',
     fontSize: 10,
-    color: '#444',
+    color: C.textDim,
   },
   severityBadge: {
     borderRadius: 4,
@@ -291,17 +294,17 @@ const styles = StyleSheet.create({
   },
   severityText: { fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
   countBadge: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: C.bgElevated,
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  countText: { fontSize: 10, fontWeight: '700', color: '#aaa' },
+  countText: { fontSize: 10, fontWeight: '700', color: C.textMuted },
 
   empty: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  emptyText: { fontSize: 14, color: '#444' },
+  emptyText: { fontSize: 14, color: C.textMuted },
 });

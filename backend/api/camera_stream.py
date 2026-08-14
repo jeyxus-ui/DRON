@@ -10,6 +10,7 @@ import asyncio
 import base64
 import logging
 import time
+import math
 from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, HTMLResponse
 
@@ -47,30 +48,74 @@ class RealSenseCamera:
         self._width        = 640
         self._height       = 480
         self._fps          = 30
+        self.demo          = False
+        self._rs_active    = False
+        self._rs_pipe      = None
 
-    def start(self, width: int = 640, height: int = 480, fps: int = 30):
+    def start(self, width: int = 640, height: int = 480, fps: int = 30, source: str | None = None):
         self._width  = width
         self._height = height
         self._fps    = fps
+        self.demo    = False
 
-        for idx in VIDEO_DEVICES:
-            cap = cv2.VideoCapture(idx)
-            if cap.isOpened():
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH,  width)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-                cap.set(cv2.CAP_PROP_FPS,          fps)
-                self.cap           = cap
-                self._device_index = idx
-                self.running       = True
-                logger.info(f"✅ Cámara iniciada en /dev/video{idx} — {width}x{height} @ {fps}fps")
-                break
-            cap.release()
+        # 1) RealSense vía pyrealsense2 (cámara real del dron)
+        if source is None or source == "realsense":
+            if self._try_realsense(width, height, fps):
+                self.running = True
 
+        # 2) Webcam UVC estándar
+        if not self.running and (source is None or source == "uvc"):
+            for idx in VIDEO_DEVICES:
+                cap = cv2.VideoCapture(idx)
+                if cap.isOpened():
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  width)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                    cap.set(cv2.CAP_PROP_FPS,          fps)
+                    self.cap           = cap
+                    self._device_index = idx
+                    self.running       = True
+                    logger.info(f"✅ Cámara UVC iniciada en índice {idx} — {width}x{height} @ {fps}fps")
+                    break
+                cap.release()
+
+        # 3) Fallback demo (siempre conecta, sin cámara real)
         if not self.running:
-            raise RuntimeError("No device connected")
+            self.demo          = True
+            self._device_index = -1
+            self.running       = True
+            logger.warning("⚠️ Sin cámara real disponible -> MODO DEMO (fuente sintética)")
 
         self.capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
         self.capture_thread.start()
+
+    def _try_realsense(self, width: int, height: int, fps: int) -> bool:
+        try:
+            import pyrealsense2 as rs
+
+            def _go():
+                try:
+                    pipe = rs.pipeline()
+                    cfg  = rs.config()
+                    cfg.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
+                    pipe.start(cfg)
+                    self._rs_pipe   = pipe
+                    self._rs_active = True
+                except Exception:
+                    self._rs_active = False
+
+            t = threading.Thread(target=_go, daemon=True)
+            t.start()
+            t.join(timeout=3.0)
+            if self._rs_active:
+                logger.info("✅ RealSense iniciada vía pyrealsense2")
+                return True
+            self._rs_active = False
+            logger.warning("RealSense no disponible (timeout o sin dispositivo)")
+            return False
+        except Exception as e:
+            self._rs_active = False
+            logger.warning(f"RealSense no disponible: {e}")
+            return False
 
     def stop(self):
         self.running = False
@@ -79,15 +124,49 @@ class RealSenseCamera:
         if self.cap:
             self.cap.release()
             self.cap = None
+        if self._rs_active and self._rs_pipe is not None:
+            try:
+                self._rs_pipe.stop()
+            except Exception:
+                pass
+            self._rs_active = False
+            self._rs_pipe = None
         logger.info("🛑 Cámara detenida")
+
+    def _grab_frame(self):
+        if self._rs_active and self._rs_pipe is not None:
+            try:
+                frames = self._rs_pipe.wait_for_frames()
+                cf = frames.get_color_frame()
+                if cf is not None:
+                    return np.asanyarray(cf.get_data())
+            except Exception:
+                return None
+            return None
+        if self.cap is not None:
+            ret, frame = self.cap.read()
+            return frame if ret else None
+        return self._demo_frame()
+
+    def _demo_frame(self):
+        img = np.zeros((self._height, self._width, 3), dtype=np.uint8)
+        t  = time.time()
+        cx = int(self._width / 2 + (self._width / 3) * math.sin(t))
+        cy = int(self._height / 2 + (self._height / 3) * math.cos(t * 0.7))
+        cv2.circle(img, (cx, cy), 40, (0, 130, 0), 2)
+        cv2.line(img, (cx - 60, cy), (cx + 60, cy), (0, 130, 0), 2)
+        cv2.line(img, (cx, cy - 60), (cx, cy + 60), (0, 130, 0), 2)
+        cv2.putText(img, "MODO DEMO - SIN CAMARA REAL", (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 160, 0), 2)
+        cv2.putText(img, time.strftime("%H:%M:%S"), (20, self._height - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 160, 0), 2)
+        return img
 
     def _capture_loop(self):
         frame_interval = 1.0 / max(1, self._fps)
         while self.running:
-            if self.cap is None:
-                break
-            ret, frame = self.cap.read()
-            if ret:
+            frame = self._grab_frame()
+            if frame is not None:
                 markers = detector.detect(frame)
                 overlay = detector.draw_overlay(frame, markers)
                 _check_auto_avoid(markers)
@@ -360,7 +439,8 @@ async def camera_status():
     return {
         "running":    camera.running,
         "has_frame":  camera.current_frame is not None,
-        "device":     f"/dev/video{camera._device_index}" if camera._device_index is not None else None,
+        "demo":       camera.demo,
+        "device":     "demo" if camera.demo else (f"/dev/video{camera._device_index}" if camera._device_index is not None else None),
         "resolution": f"{camera._width}x{camera._height}",
         "fps":        camera._fps,
         "ws_clients": len(_ws_clients),

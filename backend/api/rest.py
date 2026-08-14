@@ -6,7 +6,7 @@ CORRECCIONES:
 - /telemetry ahora incluye vertical_speed y hdop (faltaban)
 - Emergencia STOP: intenta BRAKE primero, cae a LOITER si no hay GPS
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
@@ -14,9 +14,12 @@ import logging
 import threading
 import time
 
+from backend.api.auth import require_auth
+
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["drone"])
+# Todos los endpoints /api/* exigen un bearer token válido (excepto /api/auth/*)
+router = APIRouter(tags=["drone"], dependencies=[Depends(require_auth)])
 
 mav = None
 sensor_manager = None

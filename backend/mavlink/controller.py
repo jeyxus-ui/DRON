@@ -84,6 +84,24 @@ class MAVController:
             except Exception as e:
                 logger.warning('⚠️ Param set %s failed: %s', name, e)
 
+        # Verificar configuración de RC override (joystick virtual)
+        try:
+            ov_time = self.read_param_safe('RC_OVERRIDE_TIME')
+            if ov_time is not None and ov_time.get('value') == 0:
+                logger.warning('⚠️ RC_OVERRIDE_TIME=0 — los overrides RC están DESACTIVADOS; el joystick no funcionará')
+            opts = self.read_param_safe('RC_OPTIONS')
+            if opts is not None and (int(opts.get('value', 0)) & 2):
+                logger.warning('⚠️ RC_OPTIONS bit 1 activado — ArduPilot ignora los overrides RC del GCS')
+        except Exception as e:
+            logger.debug('No se pudo verificar configuración RC override: %s', e)
+
+        try:
+            fence_en = self.read_param_safe('FENCE_ENABLE')
+            if fence_en is not None and fence_en.get('value') == 0:
+                logger.info('ℹ️ FENCE_ENABLE=0 — el límite de altura solo se aplica en la app, no en el autopiloto')
+        except Exception as e:
+            logger.debug('No se pudo verificar FENCE_ENABLE: %s', e)
+
     def read_param_safe(self, name):
         """Read a Pixhawk parameter, return None on failure."""
         try:
@@ -99,8 +117,9 @@ class MAVController:
             'MOT_SPIN_ARM', 'MOT_SPIN_MIN', 'MOT_SPIN_MAX',
             'MOT_PWM_MIN', 'MOT_PWM_MAX',
             'DISARM_DELAY', 'ARMING_CHECK',
-            'RC_OVERRIDE_TIME', 'BRD_SAFETY_DEFLT',
+            'RC_OVERRIDE_TIME', 'RC_OPTIONS', 'BRD_SAFETY_DEFLT',
             'BATT_MONITOR', 'BATT_N_CELLS', 'BATT_LOW_VOLT', 'BATT_FS_LOW_ACT',
+            'FENCE_ENABLE', 'FENCE_ALT_MAX',
         ]
         result = {}
         for name in critical:

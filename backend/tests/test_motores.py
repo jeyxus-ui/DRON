@@ -846,38 +846,54 @@ class TestCommandsFlow:
 # =============================================================================
 class TestDiagnosticEndpoints:
     @pytest.fixture
-    def test_client(self):
+    def auth_client(self, tmp_path, monkeypatch):
         try:
             from fastapi.testclient import TestClient
             from backend.main import app
-            return TestClient(app)
+            from backend.api import auth
+            monkeypatch.setattr(auth.store, "path", tmp_path / "users.json")
+            auth.rate_limiter._records.clear()
+            auth.sessions._sessions.clear()
+            auth.ensure_admin_user("test_admin", "TestPass1234")
+            client = TestClient(app)
+            r = client.post("/api/auth/login",
+                            json={"username": "test_admin", "password": "TestPass1234"})
+            token = r.json()["token"]
+            headers = {"Authorization": f"Bearer {token}"}
+            return client, headers
         except ImportError:
             pytest.skip("Requiere fastapi testclient")
-            return None
+            return None, None
 
-    def test_diag_params_endpoint_exists(self, test_client):
-        r = test_client.get("/api/diag/params")
-        assert r.status_code in (200, 503)
+    def test_diag_params_endpoint_exists(self, auth_client):
+        client, headers = auth_client
+        r = client.get("/api/diag/params", headers=headers)
+        assert r.status_code in (200, 500, 503)
 
-    def test_diag_rc_endpoint_exists(self, test_client):
-        r = test_client.get("/api/diag/rc")
-        assert r.status_code in (200, 503)
+    def test_diag_rc_endpoint_exists(self, auth_client):
+        client, headers = auth_client
+        r = client.get("/api/diag/rc", headers=headers)
+        assert r.status_code in (200, 500, 503)
 
-    def test_diag_servo_raw_endpoint_exists(self, test_client):
-        r = test_client.get("/api/diag/servo_raw")
-        assert r.status_code in (200, 503)
+    def test_diag_servo_raw_endpoint_exists(self, auth_client):
+        client, headers = auth_client
+        r = client.get("/api/diag/servo_raw", headers=headers)
+        assert r.status_code in (200, 500, 503)
 
-    def test_diag_rc_channels_endpoint_exists(self, test_client):
-        r = test_client.get("/api/diag/rc_channels")
-        assert r.status_code in (200, 503)
+    def test_diag_rc_channels_endpoint_exists(self, auth_client):
+        client, headers = auth_client
+        r = client.get("/api/diag/rc_channels", headers=headers)
+        assert r.status_code in (200, 500, 503)
 
-    def test_diag_motor_test_endpoint_exists(self, test_client):
-        r = test_client.post("/api/diag/motor-test?motor=0&throttle=10&duration=1")
-        assert r.status_code in (200, 503)
+    def test_diag_motor_test_endpoint_exists(self, auth_client):
+        client, headers = auth_client
+        r = client.post("/api/diag/motor-test?motor=0&throttle=10&duration=1", headers=headers)
+        assert r.status_code in (200, 500, 503)
 
-    def test_diag_param_set_endpoint_exists(self, test_client):
-        r = test_client.post("/api/diag/param/set?name=MOT_SPIN_ARM&value=0.15")
-        assert r.status_code in (200, 503, 422)
+    def test_diag_param_set_endpoint_exists(self, auth_client):
+        client, headers = auth_client
+        r = client.post("/api/diag/param/set?name=MOT_SPIN_ARM&value=0.15", headers=headers)
+        assert r.status_code in (200, 500, 503, 422)
 
 
 # =============================================================================

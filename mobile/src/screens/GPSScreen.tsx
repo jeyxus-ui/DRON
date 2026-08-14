@@ -5,15 +5,15 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  Dimensions,
   Animated,
   ScrollView,
 } from 'react-native';
 import MapView, { Marker, Polyline, Circle, MapPressEvent } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDrone } from '../context/DroneContext';
+import { theme } from '../theme';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const C = theme.colors;
 
 interface Waypoint {
   id:        string;
@@ -24,10 +24,10 @@ interface Waypoint {
 }
 
 const GPS_QUALITY = (hdop: number, sat: number) => {
-  if (sat >= 8 && hdop < 1.5) return { label: 'EXCELENTE', color: '#00B4D8' };
-  if (sat >= 6 && hdop < 2.5) return { label: 'BUENO',     color: '#88ff00' };
-  if (sat >= 5 && hdop < 5)   return { label: 'REGULAR',   color: '#ffaa00' };
-  return                               { label: 'MALO',      color: '#ff4444' };
+  if (sat >= 8 && hdop < 1.5) return { label: 'EXCELENTE', color: C.cyan };
+  if (sat >= 6 && hdop < 2.5) return { label: 'BUENO',     color: C.success };
+  if (sat >= 5 && hdop < 5)   return { label: 'REGULAR',   color: C.warning };
+  return                               { label: 'MALO',      color: C.danger };
 };
 
 export const GPSScreen: React.FC = () => {
@@ -195,10 +195,10 @@ export const GPSScreen: React.FC = () => {
             <View style={styles.droneMarkerWrap}>
               <Animated.View style={[styles.dronePulse, {
                 transform: [{ scale: pulseAnim }],
-                backgroundColor: connected ? '#00B4D822' : '#ff004422',
-                borderColor:     connected ? '#00B4D866' : '#ff004466',
+                backgroundColor: connected ? C.cyan + '22' : C.danger + '22',
+                borderColor:     connected ? C.cyan + '66' : C.danger + '66',
               }]} />
-              <View style={[styles.droneDot, { backgroundColor: connected ? '#00B4D8' : '#ff4444' }]}>
+              <View style={[styles.droneDot, { backgroundColor: connected ? C.cyan : C.danger }]}>
                 <Text style={styles.droneIcon}>✈</Text>
               </View>
             </View>
@@ -206,7 +206,7 @@ export const GPSScreen: React.FC = () => {
         )}
 
         {/* Waypoints */}
-        {waypoints.map((wp, i) => (
+        {waypoints.map(wp => (
           <Marker
             key={wp.id}
             coordinate={{ latitude: wp.latitude, longitude: wp.longitude }}
@@ -239,7 +239,7 @@ export const GPSScreen: React.FC = () => {
         {/* Calidad GPS */}
         <View style={[styles.gpsPill, { borderColor: gpsQuality.color + '60', backgroundColor: gpsQuality.color + '15' }]}>
           <View style={[styles.gpsDot, { backgroundColor: gpsQuality.color }]} />
-          <Text style={[styles.gpsPillText, { color: gpsQuality.color, textShadowColor: gpsQuality.color, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 }]}>
+          <Text style={[styles.gpsPillText, { color: gpsQuality.color }]}>
             GPS {gpsQuality.label}
           </Text>
         </View>
@@ -248,11 +248,11 @@ export const GPSScreen: React.FC = () => {
         <View style={styles.hudChips}>
           <View style={styles.hudChip}>
             <Text style={styles.hudChipLabel}>SAT</Text>
-            <Text style={[styles.hudChipValue, { color: sat >= 6 ? '#00B4D8' : '#ff4444' }]}>{sat}</Text>
+            <Text style={[styles.hudChipValue, { color: sat >= 6 ? C.cyan : C.danger }]}>{sat}</Text>
           </View>
           <View style={styles.hudChip}>
             <Text style={styles.hudChipLabel}>HDOP</Text>
-            <Text style={[styles.hudChipValue, { color: hdop < 2 ? '#00B4D8' : hdop < 5 ? '#ffaa00' : '#ff4444' }]}>
+            <Text style={[styles.hudChipValue, { color: hdop < 2 ? C.cyan : hdop < 5 ? C.warning : C.danger }]}>
               {hdop.toFixed(1)}
             </Text>
           </View>
@@ -350,7 +350,7 @@ export const GPSScreen: React.FC = () => {
                 onLongPress={() => handleDeleteWaypoint(wp.id)}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.wpChipNum, targetWp?.id === wp.id && { color: '#00B4D8' }]}>
+                <Text style={[styles.wpChipNum, targetWp?.id === wp.id && { color: C.cyan }]}>
                   WP{wp.label}
                 </Text>
                 <Text style={styles.wpChipCoord}>
@@ -383,7 +383,7 @@ export const GPSScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#050508' },
+  container: { flex: 1, backgroundColor: C.bg },
   map:       { flex: 1 },
 
   // ── HUD SUPERIOR ──
@@ -406,25 +406,25 @@ const styles = StyleSheet.create({
     borderRadius:   20,
     borderWidth:    1.5,
     gap:            6,
-    backgroundColor: 'rgba(15,25,40,0.3)',
+    backgroundColor: C.glass,
   },
-  gpsDot:      { width: 6, height: 6, borderRadius: 3, shadowColor: '#00B4D8', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 6, elevation: 6 },
+  gpsDot:      { width: 6, height: 6, borderRadius: 3 },
   gpsPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
 
   hudChips:    { flexDirection: 'row', gap: 6 },
   hudChip: {
     alignItems:      'center',
-    backgroundColor: 'rgba(15,25,40,0.3)',
+    backgroundColor: C.glass,
     borderRadius:    12,
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderWidth:     1.5,
-    borderColor:     'rgba(0,180,216,0.55)',
+    borderColor:     C.cyan + '88',
     minWidth:        44,
   },
-  hudChipLabel: { color: '#444', fontSize: 7, fontWeight: '800', letterSpacing: 1 },
-  hudChipValue: { color: '#00B4D8', fontSize: 13, fontWeight: '900', textShadowColor: '#00B4D8', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 },
-  hudChipUnit:  { color: '#444', fontSize: 8 },
+  hudChipLabel: { color: C.textMuted, fontSize: 7, fontWeight: '800', letterSpacing: 1 },
+  hudChipValue: { color: C.cyan, fontSize: 13, fontWeight: '900' },
+  hudChipUnit:  { color: C.textMuted, fontSize: 8 },
 
   // ── BOTONES DERECHA ──
   rightButtons: {
@@ -436,13 +436,13 @@ const styles = StyleSheet.create({
     width:           42,
     height:          42,
     borderRadius:    14,
-    backgroundColor: 'rgba(15,25,40,0.3)',
+    backgroundColor: C.glass,
     borderWidth:     1.5,
-    borderColor:     'rgba(255,255,255,0.15)',
+    borderColor:     C.hairlineStrong,
     justifyContent:  'center',
     alignItems:      'center',
   },
-  mapBtnActive: { borderColor: '#00B4D8', backgroundColor: 'rgba(0,180,216,0.2)', shadowColor: '#00B4D8', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 10, elevation: 8 },
+  mapBtnActive: { borderColor: C.cyan, backgroundColor: C.cyan + '1A' },
   mapBtnText:   { fontSize: 16 },
 
   // ── MARCADOR DRON ──
@@ -462,14 +462,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems:     'center',
     borderWidth:    2,
-    borderColor:    'rgba(0,180,216,0.6)',
-    shadowColor:    '#00B4D8',
-    shadowOffset:   { width: 0, height: 0 },
-    shadowOpacity:  0.5,
-    shadowRadius:   8,
-    elevation:      8,
+    borderColor:    C.cyan + '66',
   },
-  droneIcon: { fontSize: 13, color: '#050508' },
+  droneIcon: { fontSize: 13, color: C.bg },
 
   // ── WAYPOINT MARKER ──
   wpMarker: {
@@ -484,9 +479,9 @@ const styles = StyleSheet.create({
   },
   wpMarkerActive: {
     backgroundColor: 'rgba(0,180,216,0.3)',
-    borderColor:     '#00B4D8',
+    borderColor:     C.cyan,
   },
-  wpMarkerText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  wpMarkerText: { color: C.text, fontSize: 10, fontWeight: '900' },
 
   // ── PANEL INFERIOR ──
   bottomPanel: {
@@ -494,18 +489,18 @@ const styles = StyleSheet.create({
     bottom:          0,
     left:            0,
     right:           0,
-    backgroundColor: 'rgba(15,25,40,0.35)',
+    backgroundColor: C.surface,
     borderTopWidth:  1.5,
-    borderTopColor:  'rgba(255,255,255,0.15)',
+    borderTopColor:  C.hairlineStrong,
     paddingHorizontal: 14,
     paddingTop:      12,
   },
 
   coordRow:     { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   coordItem:    { flex: 1, alignItems: 'center' },
-  coordDivider: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.08)' },
-  coordLabel:   { color: '#333', fontSize: 8, fontWeight: '800', letterSpacing: 1.5, marginBottom: 2 },
-  coordValue:   { color: '#00B4D8', fontSize: 13, fontWeight: '800', letterSpacing: 0.5, textShadowColor: '#00B4D8', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 },
+  coordDivider: { width: 1, height: 28, backgroundColor: C.hairline },
+  coordLabel:   { color: C.textDim, fontSize: 8, fontWeight: '800', letterSpacing: 1.5, marginBottom: 2 },
+  coordValue:   { color: C.cyan, fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
 
   altRow: {
     flexDirection:  'row',
@@ -513,40 +508,40 @@ const styles = StyleSheet.create({
     marginBottom:   10,
     gap:            10,
   },
-  altLabel:    { color: '#333', fontSize: 8, fontWeight: '800', letterSpacing: 1 },
+  altLabel:    { color: C.textDim, fontSize: 8, fontWeight: '800', letterSpacing: 1 },
   altControls: { flexDirection: 'row', gap: 6, flex: 1 },
   altBtn: {
     flex:            1,
     paddingVertical: 5,
     borderRadius:    10,
-    backgroundColor: 'rgba(15,25,40,0.3)',
+    backgroundColor: C.glass,
     borderWidth:     1.5,
-    borderColor:     'rgba(255,255,255,0.1)',
+    borderColor:     C.hairlineStrong,
     alignItems:      'center',
   },
-  altBtnActive:     { backgroundColor: 'rgba(0,180,216,0.2)', borderColor: '#00B4D8', shadowColor: '#00B4D8', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 6 },
-  altBtnText:       { color: '#444', fontSize: 10, fontWeight: '700' },
-  altBtnTextActive: { color: '#00B4D8', textShadowColor: '#00B4D8', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 4 },
+  altBtnActive:     { backgroundColor: C.cyan + '1A', borderColor: C.cyan },
+  altBtnText:       { color: C.textMuted, fontSize: 10, fontWeight: '700' },
+  altBtnTextActive: { color: C.cyan },
 
   // ── LISTA WAYPOINTS ──
   wpList:        { maxHeight: 60, marginBottom: 4 },
   wpListContent: { gap: 8, paddingRight: 4 },
   wpChip: {
-    backgroundColor: 'rgba(15,25,40,0.3)',
+    backgroundColor: C.glass,
     borderRadius:    12,
     borderWidth:     1.5,
-    borderColor:     'rgba(255,255,255,0.12)',
+    borderColor:     C.hairlineStrong,
     paddingHorizontal: 10,
     paddingVertical: 6,
     minWidth:        110,
   },
-  wpChipActive:  { borderColor: '#00B4D8', backgroundColor: 'rgba(0,180,216,0.18)', shadowColor: '#00B4D8', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 6 },
-  wpChipNum:     { color: '#ffaa00', fontSize: 9, fontWeight: '900', letterSpacing: 1 },
-  wpChipCoord:   { color: '#666', fontSize: 8, fontWeight: '600', marginTop: 1 },
-  wpChipAlt:     { color: '#444', fontSize: 8, fontWeight: '600' },
+  wpChipActive:  { borderColor: C.cyan, backgroundColor: C.cyan + '18' },
+  wpChipNum:     { color: C.warning, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  wpChipCoord:   { color: C.textMuted, fontSize: 8, fontWeight: '600', marginTop: 1 },
+  wpChipAlt:     { color: C.textMuted, fontSize: 8, fontWeight: '600' },
 
   hint: {
-    color:      '#2a2a3a',
+    color:      C.textDim,
     fontSize:   10,
     fontWeight: '600',
     textAlign:  'center',
@@ -560,15 +555,15 @@ const styles = StyleSheet.create({
     left:           '50%',
     transform:      [{ translateX: -90 }],
     width:          180,
-    backgroundColor: 'rgba(15,25,40,0.4)',
+    backgroundColor: C.surface,
     borderRadius:   18,
     borderWidth:    1.5,
-    borderColor:    'rgba(255,255,255,0.15)',
+    borderColor:    C.hairlineStrong,
     padding:        20,
     alignItems:     'center',
     gap:            6,
   },
   noGpsIcon:  { fontSize: 32 },
-  noGpsTitle: { color: '#888', fontSize: 13, fontWeight: '800', letterSpacing: 1 },
-  noGpsDesc:  { color: '#444', fontSize: 10, fontWeight: '600' },
+  noGpsTitle: { color: C.textMuted, fontSize: 13, fontWeight: '800', letterSpacing: 1 },
+  noGpsDesc:  { color: C.textMuted, fontSize: 10, fontWeight: '600' },
 });

@@ -18,7 +18,10 @@ export const getMaxAltitude = (): number => currentMaxAlt;
 export const setMaxAltitude = (alt: number): void => { currentMaxAlt = alt; };
 
 export const getApiUrl = (): string => `http://${currentHost}:8000`;
-export const getWsUrl = (): string => `ws://${currentHost}:8000/ws/telemetry`;
+export const getWsUrl = (token?: string): string =>
+  token
+    ? `ws://${currentHost}:8000/ws/telemetry?token=${encodeURIComponent(token)}`
+    : `ws://${currentHost}:8000/ws/telemetry`;
 
 // Para componentes que necesitan IP dinámica (ej: WebView)
 export const getStaticApiUrl = (): string => `http://${currentHost}:8000`;

@@ -28,6 +28,13 @@ API_PORT = int(os.getenv('API_PORT', 8000))
 # Logging
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
+# Autenticación
+AUTH_TOKEN_EXPIRY = int(os.getenv('AUTH_TOKEN_EXPIRY', 86400))          # 24h
+AUTH_MAX_FAILED_LOGINS = int(os.getenv('AUTH_MAX_FAILED_LOGINS', 5))    # intentos antes de bloquear
+AUTH_LOCKOUT_SECONDS = int(os.getenv('AUTH_LOCKOUT_SECONDS', 300))      # bloqueo 5 min
+AUTH_MIN_PASSWORD_LENGTH = int(os.getenv('AUTH_MIN_PASSWORD_LENGTH', 8))
+USERS_FILE = os.getenv('USERS_FILE', os.path.join(os.path.dirname(__file__), 'data', 'users.json'))
+
 # Database
 DEFAULT_DB = 'postgresql://dronix_user:DronixSecure2024!@postgres:5432/drones'
 DB_URL = os.getenv('DB_URL', DEFAULT_DB)
