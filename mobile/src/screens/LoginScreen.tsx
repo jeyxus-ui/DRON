@@ -84,8 +84,8 @@ export const LoginScreen: React.FC = () => {
           <View style={styles.brandBadge}>
             <Text style={styles.brandIcon}>▲</Text>
           </View>
-          <Text style={styles.brandTitle}>DRON GCS</Text>
-          <Text style={styles.brandSub}>CONTROL TÁCTICO · SEGURIDAD</Text>
+          <Text style={styles.brandTitle}>ODD</Text>
+          <Text style={styles.brandSub}>OJO DE DIOS</Text>
         </View>
 
         {/* ── Tarjeta de login ── */}

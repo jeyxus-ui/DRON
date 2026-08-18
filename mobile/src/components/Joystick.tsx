@@ -32,7 +32,7 @@ export const Joystick: React.FC<JoystickProps> = ({
   const animX       = useRef(new Animated.Value(0)).current;
   const animY       = useRef(new Animated.Value(initY)).current;
   const throttleRef = useRef(initY);
-  const touchId     = useRef<number | null>(null);
+  const touchId     = useRef<string | null>(null);
   const viewRef     = useRef<View>(null);
 
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));

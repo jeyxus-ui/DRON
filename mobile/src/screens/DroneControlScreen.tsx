@@ -67,7 +67,7 @@ export const DroneControlScreen: React.FC = () => {
   const { width: winW, height: winH } = useWindowDimensions();
   const isLandscape = winW > winH;
   const refDim = Math.min(winW, winH);
-  const joySize = isLandscape ? refDim * 0.36 : refDim * 0.18;
+  const joySize = isLandscape ? refDim * 0.26 : refDim * 0.18;
   const panelWidth = winW * 0.72;
 
   const deviceLoc = useDeviceLocation();
@@ -101,6 +101,46 @@ export const DroneControlScreen: React.FC = () => {
       clearInterval(t);
       if (toastTimeout.current) clearTimeout(toastTimeout.current);
     };
+  }, []);
+
+  const cameraStateRef = useRef<CameraState>('idle');
+  const tryConnectCamera = () => {
+    if (cameraStateRef.current === 'connected' || cameraStateRef.current === 'loading') {
+      console.log('[CAM] skip, state=' + cameraStateRef.current);
+      return;
+    }
+    cameraStateRef.current = 'loading';
+    setCameraState('loading');
+    const url = `${getApiUrl()}/api/camera/status`;
+    console.log('[CAM] fetching ' + url);
+    authFetch(url)
+      .then(r => {
+        console.log('[CAM] HTTP ' + r.status);
+        return r.ok ? r.json() : Promise.reject('HTTP ' + r.status);
+      })
+      .then(data => {
+        console.log('[CAM] running=' + data.running + ' has_frame=' + data.has_frame);
+        if (data.running && data.has_frame) {
+          cameraStateRef.current = 'connected';
+          setCameraState('connected');
+          cameraKeyRef.current++;
+        } else {
+          cameraStateRef.current = 'failed';
+          setCameraState('failed');
+        }
+      })
+      .catch((e) => {
+        console.log('[CAM] error: ' + String(e));
+        cameraStateRef.current = 'failed';
+        setCameraState('failed');
+      });
+  };
+
+  useEffect(() => {
+    console.log('[CAM] useEffect mounted, scheduling tryConnectCamera');
+    const t1 = setTimeout(() => tryConnectCamera(), 1000);
+    const t2 = setInterval(() => tryConnectCamera(), 5000);
+    return () => { clearTimeout(t1); clearInterval(t2); };
   }, []);
 
   const getSpd = () => telemetry?.ground_speed ?? sim.spd;
@@ -407,8 +447,8 @@ export const DroneControlScreen: React.FC = () => {
           {/* ── HEADER ── */}
           <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
             <TouchableOpacity style={styles.headerLeft} onPress={openPanel} activeOpacity={0.7}>
-              <Text style={styles.logo}>GCS</Text>
-              <Text style={styles.logoSub}>v1.0</Text>
+              <Text style={styles.logo}>ODD</Text>
+              <Text style={styles.logoSub}>OJO DE DIOS</Text>
             </TouchableOpacity>
             <View style={styles.headerRight}>
               <TouchableOpacity onPress={() => setIpModalVisible(true)} activeOpacity={0.6} style={styles.ipBtn}>
@@ -442,6 +482,7 @@ export const DroneControlScreen: React.FC = () => {
                 <View style={styles.cameraOff}>
                   <Text style={styles.cameraOffIcon}>CAM</Text>
                   <Text style={styles.cameraConnecting}>CONECTANDO…</Text>
+                  <Text style={[styles.cameraConnecting, { fontSize: 9, opacity: 0.6 }]}>{getApiUrl()}</Text>
                 </View>
               ) : cameraState === 'connected' ? (
                 <WebView
@@ -462,24 +503,10 @@ export const DroneControlScreen: React.FC = () => {
               ) : (
                 <View style={styles.cameraOff}>
                   <Text style={styles.cameraOffIcon}>CAM</Text>
+                  <Text style={[styles.cameraConnecting, { fontSize: 9, opacity: 0.6 }]}>{getApiUrl()}</Text>
                   <TouchableOpacity
                     style={styles.retryBtn}
-                    onPress={() => {
-                      setCameraState('loading');
-                      authFetch(`${getApiUrl()}/api/camera/status`)
-                        .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
-                        .then(data => {
-                          if (data.running && data.has_frame) {
-                            setCameraState('connected');
-                            cameraKeyRef.current++;
-                            pushError('CAM_OK', 'Cámara conectada', 'info');
-                          } else {
-                            setCameraState('failed');
-                            pushError('CAM_NOT_CONNECTED', 'No hay cámara conectada — verifica cable USB y drivers', 'error');
-                          }
-                        })
-                        .catch(() => { setCameraState('failed'); pushError('CAM_NETWORK', 'Red no disponible para cámara', 'error'); });
-                    }}
+                    onPress={() => tryConnectCamera()}
                     activeOpacity={0.7}
                   >
                     <Text style={styles.retryBtnText}>REINTENTAR</Text>
@@ -528,12 +555,13 @@ export const DroneControlScreen: React.FC = () => {
       {isLandscape && (
         <View style={styles.landscapeBody}>
           {/* ── CAMARA FULL SCREEN ── */}
-          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
             <View style={styles.cameraContainer}>
               {cameraState === 'loading' ? (
                 <View style={styles.cameraOff}>
                   <Text style={styles.cameraOffIcon}>CAM</Text>
                   <Text style={styles.cameraConnecting}>CONECTANDO…</Text>
+                  <Text style={[styles.cameraConnecting, { fontSize: 9, opacity: 0.6 }]}>{getApiUrl()}</Text>
                 </View>
               ) : cameraState === 'connected' ? (
                 <WebView
@@ -554,24 +582,10 @@ export const DroneControlScreen: React.FC = () => {
               ) : (
                 <View style={styles.cameraOff}>
                   <Text style={styles.cameraOffIcon}>CAM</Text>
+                  <Text style={[styles.cameraConnecting, { fontSize: 9, opacity: 0.6 }]}>{getApiUrl()}</Text>
                   <TouchableOpacity
                     style={styles.retryBtn}
-                    onPress={() => {
-                      setCameraState('loading');
-                      authFetch(`${getApiUrl()}/api/camera/status`)
-                        .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
-                        .then(data => {
-                          if (data.running && data.has_frame) {
-                            setCameraState('connected');
-                            cameraKeyRef.current++;
-                            pushError('CAM_OK', 'Cámara conectada', 'info');
-                          } else {
-                            setCameraState('failed');
-                            pushError('CAM_NOT_CONNECTED', 'No hay cámara conectada — verifica cable USB y drivers', 'error');
-                          }
-                        })
-                        .catch(() => { setCameraState('failed'); pushError('CAM_NETWORK', 'Red no disponible para cámara', 'error'); });
-                    }}
+                    onPress={() => tryConnectCamera()}
                     activeOpacity={0.7}
                   >
                     <Text style={styles.retryBtnText}>REINTENTAR</Text>
@@ -618,7 +632,7 @@ export const DroneControlScreen: React.FC = () => {
           {/* ── HEADER OVERLAY ── */}
           <View style={[styles.headerLandscape, { paddingTop: insets.top + 2 }]}>
             <TouchableOpacity onPress={openPanel} activeOpacity={0.7}>
-              <Text style={styles.logo}>GCS</Text>
+              <Text style={styles.logo}>ODD</Text>
             </TouchableOpacity>
             <Text style={styles.headerTime}>{new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</Text>
             <TouchableOpacity
@@ -763,7 +777,7 @@ export const DroneControlScreen: React.FC = () => {
       <Animated.View style={[styles.sidePanel, { width: panelWidth, transform: [{ translateX: panelX }] }]}>
         <View style={[styles.panelHeader, { paddingTop: insets.top + 12 }]}>
           <View>
-            <Text style={styles.panelTitle}>GCS CONTROL</Text>
+            <Text style={styles.panelTitle}>ODD CONTROL</Text>
             <Text style={styles.panelSubtitle}>ArduPilot · {telemetry?.mode ?? '—'}</Text>
           </View>
           <TouchableOpacity onPress={closePanel} style={styles.closeBtn} activeOpacity={0.75}>

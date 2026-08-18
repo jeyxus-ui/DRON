@@ -4,7 +4,7 @@
  * Se persiste con RNFS, valor por defecto: 172.20.10.2.
  */
 
-const DEFAULT_HOST = '172.20.10.2';
+const DEFAULT_HOST = '192.168.1.2';
 let currentHost: string = DEFAULT_HOST;
 
 export const getHostIp = (): string => currentHost;

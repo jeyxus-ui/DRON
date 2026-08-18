@@ -146,6 +146,18 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   demoBadgeText: { color: '#ffaa00', fontSize: 7, fontWeight: '900', letterSpacing: 1.5 },
+  modePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 4,
+  },
+  modeIcon: { fontSize: 9 },
+  modeText: { fontSize: 8, fontWeight: '800', letterSpacing: 0.8 },
   armBadge: {
     flexDirection: 'row',
     alignItems: 'center',

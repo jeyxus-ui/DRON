@@ -24,7 +24,7 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
 }) => {
   const containerRef = useRef<View>(null);
   const containerPos = useRef({ x: 0, y: 0, w: 0, h: 0 });
-  const activeTouches = useRef<Map<number, { side: 'left' | 'right' }>>(new Map());
+  const activeTouches = useRef<Map<string, { side: 'left' | 'right' }>>(new Map());
 
   const leftStickR = leftSize / 4;
   const leftMaxDist = leftSize / 2 - leftStickR;
@@ -90,7 +90,7 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
     const touches = e.nativeEvent.touches;
     if (!touches) return;
 
-    const snapshot: { id: number; pageX: number; pageY: number }[] = [];
+    const snapshot: { id: string; pageX: number; pageY: number }[] = [];
     for (let i = 0; i < touches.length; i++) {
       snapshot.push({ id: touches[i].identifier, pageX: touches[i].pageX, pageY: touches[i].pageY });
     }

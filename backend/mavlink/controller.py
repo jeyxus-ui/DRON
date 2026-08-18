@@ -10,6 +10,7 @@ from .commands import DroneCommands
 from .telemetry import DroneTelemetry
 from pymavlink import mavutil
 import logging
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,16 @@ class MAVController:
             self.return_to_launch = self._sim.rtl
             self.goto = lambda lat, lon, alt: self._sim.goto_position(lat, lon, alt)
             self.kill_motors = lambda: False
+
+            # RC Override simulado: permite que los joysticks funcionen en SIM
+            class _DummyConn:
+                master = None
+                _lock = threading.Lock()
+
+            self.rc = RCOverrideController(_DummyConn())
+            self.rc._reconnect_callback = self._sim.arm
+            self.rc.start()
+            logger.info("SIM: RC Override Controller iniciado (sin envío MAVLink)")
 
             return
 
