@@ -28,6 +28,8 @@ API_PORT = int(os.getenv('API_PORT', 8000))
 # Logging
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
+VISION_ENABLED = os.getenv('DRON_VISION_ENABLED', '1') != '0'
+
 # Autenticación
 AUTH_TOKEN_EXPIRY = int(os.getenv('AUTH_TOKEN_EXPIRY', 86400))          # 24h
 AUTH_MAX_FAILED_LOGINS = int(os.getenv('AUTH_MAX_FAILED_LOGINS', 5))    # intentos antes de bloquear

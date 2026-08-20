@@ -70,6 +70,10 @@ async def telemetry_broadcaster(mav_controller):
         try:
             if manager.active_connections:
                 telemetry = await get_telemetry_data(mav_controller)
+                if not isinstance(telemetry, dict):
+                    logger.error("get_telemetry_data retornó %s; se omite frame", type(telemetry).__name__)
+                    await asyncio.sleep(0.1)
+                    continue
 
                 # Connection health
                 conn = getattr(mav_controller, "conn", None)
@@ -154,20 +158,19 @@ def _get_sensor_data():
 async def get_telemetry_data(mav_controller) -> dict:
     """Extrae telemetría del controlador MAVLink + sensores."""
     try:
-        # Priorizar datos externos del bridge raspberry/
-        from backend.api.rest import _external_mavlink_data, _external_update_time
-        now = time.time()
-        if _external_update_time > 0 and now - _external_update_time < 30 and _external_mavlink_data:
-            tel = dict(_external_mavlink_data)
-            tel.update(_get_sensor_data())
-            return tel
-    except Exception as e:
-        logger.debug("Error obteniendo datos de sensores: %s", e)
+        try:
+            from backend.api.rest import _external_mavlink_data, _external_update_time
+            now = time.time()
+            if _external_update_time > 0 and now - _external_update_time < 30 and _external_mavlink_data:
+                tel = dict(_external_mavlink_data)
+                tel.update(_get_sensor_data())
+                return tel
+        except Exception:
+            pass
 
         telemetry = getattr(mav_controller, "telemetry", None)
         sensors = _get_sensor_data()
 
-        # Soporte simulador
         if telemetry is None and hasattr(mav_controller, "get_telemetry"):
             sim = mav_controller.get_telemetry()
             return {
