@@ -119,9 +119,19 @@ class VisionDetector:
         self._model = None
         self._model_ready = False
         self._model_loaded = threading.Event()
+        self._vision_disabled = False
         self._start_model_load()
 
     def _start_model_load(self):
+        try:
+            from backend.config import VISION_ENABLED
+        except ImportError:
+            VISION_ENABLED = True
+        if not VISION_ENABLED:
+            self._vision_disabled = True
+            self._model_loaded.set()
+            logger.info("Visión YOLO deshabilitada (DRON_VISION_ENABLED=0)")
+            return
         try:
             from ultralytics import YOLO
             import os
@@ -134,13 +144,15 @@ class VisionDetector:
                     logger.info("YOLOv8n model loaded")
                 except Exception as e:
                     logger.error(f"Failed to load YOLO model: {e}")
+                    self._model_loaded.set()
             t = threading.Thread(target=_load, daemon=True)
             t.start()
         except ImportError:
             logger.warning("ultralytics no instalado, detección YOLO deshabilitada")
+            self._model_loaded.set()
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
-        if frame is None:
+        if frame is None or self._vision_disabled:
             return []
         if not self._model_ready:
             self._model_loaded.wait(timeout=5.0)

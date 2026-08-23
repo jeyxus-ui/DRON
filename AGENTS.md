@@ -102,6 +102,40 @@ Si el cliente no responde en 10s (`WS_PING_TIMEOUT`), uvicorn cierra la conexió
 **IMPORTANTE**: Solo funciona cuando se inicia con `python -m backend.run`.
 Si se usa `uvicorn backend.main:app` directamente, NO se configuran los pings.
 
+## Raspberry Pi (despliegue de campo)
+
+| Dato | Valor |
+|---|---|
+| Host / hostname | DRONE-2 |
+| IP de campo | `10.252.200.235` |
+| Service systemd | `dron-backend.service` |
+| Puerto | `8000` |
+| Repo de referencia | https://github.com/jeyxus-ui/DRON (rama `ruta`) |
+
+### systemd recomendado
+
+- `ExecStart` debe usar `python3 -m backend.run` (no `uvicorn backend.main:app` directo).
+- Obligatorio en Pi 4 (Cortex-A72): `Environment=DRON_VISION_ENABLED=0` — evita crash-loop SIGILL de PyTorch/YOLO.
+- Reinicio: `sudo systemctl restart dron-backend.service`
+
+### App móvil (IP)
+
+El default de código es `172.20.10.2` (hotspot de desarrollo). En campo configurar manualmente: ⚙️ → Host IP = `10.252.200.235` → guardar → reiniciar app.
+
+### Remotes
+
+Puede haber varios remotes (`jeyxus-ui/DRON`, forks locales, remoto de la Pi). Al sincronizar, usar explícitamente el remote correcto; un checkout limpio puede sobrescribir IP/config locales.
+
+### Checklist post-despliegue
+
+1. Actualizar código en la Pi y reiniciar `dron-backend.service`.
+2. `systemctl status dron-backend` → activo, `NRestarts=0`, `:8000` escuchando.
+3. `curl` login `/api/auth/login` → HTTP 200 + token.
+4. `curl` `/api/telemetry` → batería, mode, etc.
+5. WebSocket `/ws/telemetry?token=...` → frames `type:telemetry` ~10 Hz (no solo `connection_alert`).
+6. App con IP `10.252.200.235` → telemetría en vivo.
+7. Armado solo con GPS fix (exterior). Indoor (`satellites:0`) bloquea prearm; no es bug de backend.
+
 ## Documentación del Proyecto
 
 | Archivo | Contenido |
@@ -116,18 +150,14 @@ Si se usa `uvicorn backend.main:app` directamente, NO se configuran los pings.
 
 ## Estado Actual
 
-- **Última sesión:** Merge rama `mango` + diagnóstico motores (sesión 2026-07-28)
-- **Merge mango → burron-errores:** 8 commits, 62 archivos, ~5600 líneas agregadas. Conflictos resueltos en `commands.py`, `controller.py`, `rc_override.py`, `rest.py`, `ipConfig.ts`
-- **Fix STABILIZE:** `arm()` cambia automáticamente a STABILIZE antes de armar
-- **`test_motor()`:** Método añadido a `commands.py`
-- **`MOT_SPIN_ARM`:** Subido de 0.0 → 0.07 → 0.15
-- **Motores:** Los 4 giraron correctamente en sesiones previas. El diagnóstico previo de "solo 2 motores" era incorrecto.
-- **Cambios locales sin commit:** 10 archivos modificados, 3 untracked, 2 stashes
-- **RPi sin actualizar:** El servidor en la RPi no tiene el código del merge
-- **Comando backend recomendado:** `python -m backend.run` (incluye ws_ping_interval=15s)
+- **Última sesión:** Fix informe Pi — telemetría WS + kill-switch YOLO (2026-08-20)
+- **Merge local:** `nueva-interfaz` → `ruta` (fast-forward, commit `a9e5355`)
+- **Fix WS:** `get_telemetry_data()` en `websocket.py` — lógica sacada del `except` (bug que retornaba `None` y mataba el broadcaster)
+- **Visión en Pi:** `DRON_VISION_ENABLED=0` vía config/`VisionDetector` para evitar SIGILL
+- **Comando backend recomendado:** `python -m backend.run` (incluye ws_ping)
+- **RPi:** desplegar estos fixes y verificar checklist de la sección Raspberry Pi
 - **Manual fusionado:** `documentacion/MANUAL_TECNICO_FUSIONADO.docx`
 - **Estilo de redacción:** Formal académico
-- **Archivos pendientes de revisión:** Secciones 5.4, 6.3-6.8, 7-16 del manual
 
 ## Reglas para el Asistente
 
