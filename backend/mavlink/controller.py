@@ -52,6 +52,7 @@ class MAVController:
             self.return_to_launch = self._sim.rtl
             self.goto = lambda lat, lon, alt: self._sim.goto_position(lat, lon, alt)
             self.kill_motors = lambda: False
+            self.test_motor = self._sim.test_motor
 
             return
 

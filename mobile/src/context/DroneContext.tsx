@@ -51,6 +51,11 @@ interface Telemetry {
   lidar_closest_angle?:      number;
   lidar_points?:             number;
   obstacle_ahead?:           boolean;
+  // PWM real de canales RC (desde el backend, 1000-2000 µs)
+  rc_throttle_pwm?:          number;
+  rc_roll_pwm?:              number;
+  rc_pitch_pwm?:             number;
+  rc_yaw_pwm?:               number;
   // Salud de conexión MAVLink
   connection_health?:        ConnectionHealth;
 }

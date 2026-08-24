@@ -145,11 +145,12 @@ export const DroneControlScreen: React.FC = () => {
   const [normalizedValues, setNormalizedValues] = useState({ thrNorm: -1, yaw: 0, pitch: 0, roll: 0 });
   const toPWM = (v: number): number => Math.round(1500 + v * 500);
   const toThrottlePWM = (v: number): number => Math.round(1000 + v * 1000);
+  // Usa PWM real del backend cuando está disponible; fallback a estimación local del joystick
   const pwmDisplay = {
-    thr: toThrottlePWM((normalizedValues.thrNorm + 1) / 2),
-    yaw: toPWM(normalizedValues.yaw),
-    pitch: toPWM(normalizedValues.pitch),
-    roll: toPWM(normalizedValues.roll),
+    thr:   telemetry?.rc_throttle_pwm ?? toThrottlePWM((normalizedValues.thrNorm + 1) / 2),
+    yaw:   telemetry?.rc_yaw_pwm      ?? toPWM(normalizedValues.yaw),
+    pitch: telemetry?.rc_pitch_pwm    ?? toPWM(normalizedValues.pitch),
+    roll:  telemetry?.rc_roll_pwm     ?? toPWM(normalizedValues.roll),
   };
 
   const fcRef = useRef<FlightController | null>(null);

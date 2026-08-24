@@ -12,11 +12,19 @@ import RNFS from 'react-native-fs';
 
 const WAYPOINTS_DIR = `${RNFS.DocumentDirectoryPath}/GCS/waypoints`;
 
+type RouteMode = 'indoor' | 'outdoor';
+
 interface WaypointItem {
   id: string;
+  mode: RouteMode;
+  // Modo indoor — coordenadas relativas en metros
   forward: number;
   right: number;
   up: number;
+  // Modo outdoor — coordenadas GPS absolutas
+  lat?: number;
+  lon?: number;
+  alt?: number;
 }
 
 let wpCounter = 0;
@@ -30,9 +38,18 @@ export const WaypointScreen: React.FC = () => {
   const { telemetry, connected, demoMode, sendCommand, pushError } = useDrone();
 
   const [waypoints, setWaypoints] = useState<WaypointItem[]>([]);
+  const [routeMode, setRouteMode] = useState<RouteMode>('indoor');
+
+  // Inputs modo indoor (relativo)
   const [fwd, setFwd] = useState('');
   const [right, setRight] = useState('');
   const [up, setUp] = useState('');
+
+  // Inputs modo outdoor (GPS absoluto)
+  const [gpsLat, setGpsLat] = useState('');
+  const [gpsLon, setGpsLon] = useState('');
+  const [gpsAlt, setGpsAlt] = useState('');
+
   const [loading, setLoading] = useState('');
 
   const [routeName, setRouteName] = useState('');
@@ -45,10 +62,16 @@ export const WaypointScreen: React.FC = () => {
   const [editFwd, setEditFwd] = useState('');
   const [editRight, setEditRight] = useState('');
   const [editUp, setUpEdit] = useState('');
+  const [editLat, setEditLat] = useState('');
+  const [editLon, setEditLon] = useState('');
+  const [editAlt, setEditAlt] = useState('');
 
   const fwdRef = useRef<TextInput>(null);
   const rightRef = useRef<TextInput>(null);
   const upRef = useRef<TextInput>(null);
+  const gpsLatRef = useRef<TextInput>(null);
+  const gpsLonRef = useRef<TextInput>(null);
+  const gpsAltRef = useRef<TextInput>(null);
 
   const refreshSavedRoutes = useCallback(async () => {
     try {
@@ -89,23 +112,61 @@ export const WaypointScreen: React.FC = () => {
     return () => { cancelled = true; clearInterval(iv); };
   }, [connected, demoMode, pushError]);
 
-  const addWaypoint = () => {
-    const f = parseFloat(fwd);
-    const r = parseFloat(right);
-    const u = parseFloat(up);
-    if (isNaN(f) && isNaN(r) && isNaN(u)) {
-      Alert.alert('Error', 'Ingresa al menos un valor');
-      return;
+  const handleToggleMode = (next: RouteMode) => {
+    if (waypoints.length > 0 && next !== routeMode) {
+      Alert.alert(
+        'Cambiar modo',
+        `Al cambiar a modo ${next === 'indoor' ? 'CERRADO' : 'GPS'} se borrarán los waypoints actuales. ¿Continuar?`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Cambiar', style: 'destructive',
+            onPress: () => { setWaypoints([]); setCurrentRouteName(null); setRouteName(''); setRouteMode(next); },
+          },
+        ],
+      );
+    } else {
+      setRouteMode(next);
     }
-    const wp: WaypointItem = {
-      id: `wp_${++wpCounter}`,
-      forward: isNaN(f) ? 0 : f,
-      right: isNaN(r) ? 0 : r,
-      up: isNaN(u) ? 0 : u,
-    };
-    setWaypoints(prev => [...prev, wp]);
-    setFwd(''); setRight(''); setUp('');
-    fwdRef.current?.focus();
+  };
+
+  const addWaypoint = () => {
+    if (routeMode === 'outdoor') {
+      const la = parseFloat(gpsLat);
+      const lo = parseFloat(gpsLon);
+      const al = parseFloat(gpsAlt);
+      if (isNaN(la) || isNaN(lo)) {
+        Alert.alert('Error', 'Ingresa latitud y longitud válidas');
+        return;
+      }
+      const wp: WaypointItem = {
+        id: `wp_${++wpCounter}`,
+        mode: 'outdoor',
+        forward: 0, right: 0, up: 0,
+        lat: la, lon: lo, alt: isNaN(al) ? 10 : al,
+      };
+      setWaypoints(prev => [...prev, wp]);
+      setGpsLat(''); setGpsLon(''); setGpsAlt('');
+      gpsLatRef.current?.focus();
+    } else {
+      const f = parseFloat(fwd);
+      const r = parseFloat(right);
+      const u = parseFloat(up);
+      if (isNaN(f) && isNaN(r) && isNaN(u)) {
+        Alert.alert('Error', 'Ingresa al menos un valor');
+        return;
+      }
+      const wp: WaypointItem = {
+        id: `wp_${++wpCounter}`,
+        mode: 'indoor',
+        forward: isNaN(f) ? 0 : f,
+        right: isNaN(r) ? 0 : r,
+        up: isNaN(u) ? 0 : u,
+      };
+      setWaypoints(prev => [...prev, wp]);
+      setFwd(''); setRight(''); setUp('');
+      fwdRef.current?.focus();
+    }
   };
 
   const removeWaypoint = (id: string) => {
@@ -123,6 +184,27 @@ export const WaypointScreen: React.FC = () => {
   const doStartMission = async () => {
     if (waypoints.length === 0) { Alert.alert('Sin waypoints', 'Agrega al menos un waypoint'); return; }
     setLoading('start');
+
+    // Determinar modo por el primer waypoint (todos deben ser del mismo tipo)
+    const isOutdoor = waypoints[0].mode === 'outdoor';
+
+    // 1. Subir misión al Pixhawk antes de iniciar
+    let uploadRes: { success: boolean; message: string };
+    if (isOutdoor) {
+      const wps = waypoints.map(w => ({ latitude: w.lat, longitude: w.lon, altitude: w.alt ?? 10 }));
+      uploadRes = await sendCommand('MISSION_UPLOAD', { waypoints: wps });
+    } else {
+      const wps = waypoints.map(w => ({ forward: w.forward, right: w.right, up: w.up }));
+      uploadRes = await sendCommand('MISSION_UPLOAD_RELATIVE', { waypoints: wps });
+    }
+
+    if (!uploadRes.success) {
+      setLoading('');
+      Alert.alert('Error al subir misión', uploadRes.message);
+      return;
+    }
+
+    // 2. Iniciar misión solo si la subida fue exitosa
     const res = await sendCommand('START_MISSION');
     setLoading('');
     Alert.alert(res.success ? 'Misión iniciada' : 'Error', res.message);
@@ -138,7 +220,10 @@ export const WaypointScreen: React.FC = () => {
 
   const doGotoWaypoint = (wp: WaypointItem) => {
     setLoading(`goto_${wp.id}`);
-    sendCommand('GOTO', { forward: wp.forward, right: wp.right, up: wp.up })
+    const cmd = wp.mode === 'outdoor'
+      ? sendCommand('GOTO', { latitude: wp.lat, longitude: wp.lon, altitude: wp.alt ?? 10 })
+      : sendCommand('GOTO_RELATIVE', { forward: wp.forward, right: wp.right, up: wp.up });
+    cmd
       .then(res => {
         setLoading('');
         Alert.alert(res.success ? 'Navegando' : 'Error', res.message);
@@ -211,27 +296,40 @@ export const WaypointScreen: React.FC = () => {
   const openEditModal = (wp: WaypointItem, index: number) => {
     setEditingWp(wp);
     setEditIndex(index);
-    setEditFwd(String(wp.forward));
-    setEditRight(String(wp.right));
-    setUpEdit(String(wp.up));
+    if (wp.mode === 'outdoor') {
+      setEditLat(String(wp.lat ?? ''));
+      setEditLon(String(wp.lon ?? ''));
+      setEditAlt(String(wp.alt ?? 10));
+    } else {
+      setEditFwd(String(wp.forward));
+      setEditRight(String(wp.right));
+      setUpEdit(String(wp.up));
+    }
     setEditModalVisible(true);
   };
 
   const saveEditModal = () => {
     if (!editingWp) return;
-    const f = parseFloat(editFwd);
-    const r = parseFloat(editRight);
-    const u = parseFloat(editUp);
-    if (isNaN(f) && isNaN(r) && isNaN(u)) {
-      Alert.alert('Error', 'Ingresa al menos un valor');
-      return;
+    let updated: WaypointItem;
+    if (editingWp.mode === 'outdoor') {
+      const la = parseFloat(editLat);
+      const lo = parseFloat(editLon);
+      const al = parseFloat(editAlt);
+      if (isNaN(la) || isNaN(lo)) {
+        Alert.alert('Error', 'Ingresa latitud y longitud válidas');
+        return;
+      }
+      updated = { ...editingWp, lat: la, lon: lo, alt: isNaN(al) ? 10 : al };
+    } else {
+      const f = parseFloat(editFwd);
+      const r = parseFloat(editRight);
+      const u = parseFloat(editUp);
+      if (isNaN(f) && isNaN(r) && isNaN(u)) {
+        Alert.alert('Error', 'Ingresa al menos un valor');
+        return;
+      }
+      updated = { ...editingWp, forward: isNaN(f) ? 0 : f, right: isNaN(r) ? 0 : r, up: isNaN(u) ? 0 : u };
     }
-    const updated: WaypointItem = {
-      ...editingWp,
-      forward: isNaN(f) ? 0 : f,
-      right: isNaN(r) ? 0 : r,
-      up: isNaN(u) ? 0 : u,
-    };
     setWaypoints(prev => prev.map((w, i) => (i === editIndex ? updated : w)));
     closeEditModal();
   };
@@ -244,25 +342,45 @@ export const WaypointScreen: React.FC = () => {
 
   const renderWaypoint = ({ item, index }: { item: WaypointItem; index: number }) => {
     const isNavigating = loading === `goto_${item.id}`;
+    const isOutdoor = item.mode === 'outdoor';
     return (
       <View style={styles.wpCard}>
         <View style={styles.wpCardLeft}>
-          <View style={[styles.wpBadge, { borderColor: VIOLET + 'AA' }]}>
-            <Text style={styles.wpBadgeText}>{index + 1}</Text>
+          <View style={[styles.wpBadge, { borderColor: (isOutdoor ? C.cyan : VIOLET) + 'AA' }]}>
+            <Text style={[styles.wpBadgeText, { color: isOutdoor ? C.cyan : VIOLET }]}>{index + 1}</Text>
           </View>
           <View style={styles.wpCoords}>
-            <View style={styles.wpCoordRow}>
-              <Text style={styles.wpCoordLabel}>F</Text>
-              <Text style={[styles.wpCoordValue, { color: item.forward > 0 ? VIOLET : C.textMuted }]}>{formatNum(item.forward)}</Text>
-            </View>
-            <View style={styles.wpCoordRow}>
-              <Text style={styles.wpCoordLabel}>R</Text>
-              <Text style={[styles.wpCoordValue, { color: item.right > 0 ? VIOLET : C.textMuted }]}>{formatNum(item.right)}</Text>
-            </View>
-            <View style={styles.wpCoordRow}>
-              <Text style={styles.wpCoordLabel}>U</Text>
-              <Text style={[styles.wpCoordValue, { color: item.up > 0 ? VIOLET : C.textMuted }]}>{formatNum(item.up)}</Text>
-            </View>
+            {isOutdoor ? (
+              <>
+                <View style={styles.wpCoordRow}>
+                  <Text style={styles.wpCoordLabel}>LAT</Text>
+                  <Text style={[styles.wpCoordValue, { color: C.cyan }]}>{item.lat?.toFixed(6)}</Text>
+                </View>
+                <View style={styles.wpCoordRow}>
+                  <Text style={styles.wpCoordLabel}>LON</Text>
+                  <Text style={[styles.wpCoordValue, { color: C.cyan }]}>{item.lon?.toFixed(6)}</Text>
+                </View>
+                <View style={styles.wpCoordRow}>
+                  <Text style={styles.wpCoordLabel}>ALT</Text>
+                  <Text style={[styles.wpCoordValue, { color: C.cyan }]}>{item.alt?.toFixed(1)}m</Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.wpCoordRow}>
+                  <Text style={styles.wpCoordLabel}>F</Text>
+                  <Text style={[styles.wpCoordValue, { color: item.forward > 0 ? VIOLET : C.textMuted }]}>{formatNum(item.forward)}</Text>
+                </View>
+                <View style={styles.wpCoordRow}>
+                  <Text style={styles.wpCoordLabel}>R</Text>
+                  <Text style={[styles.wpCoordValue, { color: item.right > 0 ? VIOLET : C.textMuted }]}>{formatNum(item.right)}</Text>
+                </View>
+                <View style={styles.wpCoordRow}>
+                  <Text style={styles.wpCoordLabel}>U</Text>
+                  <Text style={[styles.wpCoordValue, { color: item.up > 0 ? VIOLET : C.textMuted }]}>{formatNum(item.up)}</Text>
+                </View>
+              </>
+            )}
           </View>
         </View>
         <View style={styles.wpCardActions}>
@@ -343,52 +461,122 @@ export const WaypointScreen: React.FC = () => {
 
       <ScrollView style={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
+        {/* ── TOGGLE MODO ── */}
+        <View style={styles.modeToggleRow}>
+          <TouchableOpacity
+            style={[styles.modeToggleBtn, routeMode === 'indoor' && styles.modeToggleBtnActive]}
+            onPress={() => handleToggleMode('indoor')}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.modeToggleIcon]}>🏠</Text>
+            <Text style={[styles.modeToggleLabel, routeMode === 'indoor' && { color: VIOLET }]}>
+              CERRADO{'\n'}F · R · U
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeToggleBtn, routeMode === 'outdoor' && styles.modeToggleBtnActiveGps]}
+            onPress={() => handleToggleMode('outdoor')}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.modeToggleIcon]}>🛰</Text>
+            <Text style={[styles.modeToggleLabel, routeMode === 'outdoor' && { color: C.cyan }]}>
+              GPS{'\n'}LAT · LON
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* ── INPUT PANEL ── */}
         <View style={styles.inputPanel}>
           <View style={styles.inputRow}>
-            <View style={styles.inputGroup}>
-              <TextInput
-                ref={fwdRef}
-                style={styles.input}
-                value={fwd}
-                onChangeText={setFwd}
-                keyboardType="numeric"
-                placeholder="F"
-                placeholderTextColor={C.textDim}
-                returnKeyType="next"
-                onSubmitEditing={() => rightRef.current?.focus()}
-              />
-              <Text style={styles.inputSuffix}>m</Text>
-            </View>
-            <View style={styles.inputGroup}>
-              <TextInput
-                ref={rightRef}
-                style={styles.input}
-                value={right}
-                onChangeText={setRight}
-                keyboardType="numeric"
-                placeholder="R"
-                placeholderTextColor={C.textDim}
-                returnKeyType="next"
-                onSubmitEditing={() => upRef.current?.focus()}
-              />
-              <Text style={styles.inputSuffix}>m</Text>
-            </View>
-            <View style={styles.inputGroup}>
-              <TextInput
-                ref={upRef}
-                style={styles.input}
-                value={up}
-                onChangeText={setUp}
-                keyboardType="numeric"
-                placeholder="U"
-                placeholderTextColor={C.textDim}
-                returnKeyType="done"
-              />
-              <Text style={styles.inputSuffix}>m</Text>
-            </View>
-            <TouchableOpacity style={styles.addBtn} onPress={addWaypoint} activeOpacity={0.75}>
-              <Text style={styles.addBtnText}>+</Text>
+            {routeMode === 'indoor' ? (
+              <>
+                <View style={styles.inputGroup}>
+                  <TextInput
+                    ref={fwdRef}
+                    style={styles.input}
+                    value={fwd}
+                    onChangeText={setFwd}
+                    keyboardType="numeric"
+                    placeholder="F"
+                    placeholderTextColor={C.textDim}
+                    returnKeyType="next"
+                    onSubmitEditing={() => rightRef.current?.focus()}
+                  />
+                  <Text style={styles.inputSuffix}>m</Text>
+                </View>
+                <View style={styles.inputGroup}>
+                  <TextInput
+                    ref={rightRef}
+                    style={styles.input}
+                    value={right}
+                    onChangeText={setRight}
+                    keyboardType="numeric"
+                    placeholder="R"
+                    placeholderTextColor={C.textDim}
+                    returnKeyType="next"
+                    onSubmitEditing={() => upRef.current?.focus()}
+                  />
+                  <Text style={styles.inputSuffix}>m</Text>
+                </View>
+                <View style={styles.inputGroup}>
+                  <TextInput
+                    ref={upRef}
+                    style={styles.input}
+                    value={up}
+                    onChangeText={setUp}
+                    keyboardType="numeric"
+                    placeholder="U"
+                    placeholderTextColor={C.textDim}
+                    returnKeyType="done"
+                  />
+                  <Text style={styles.inputSuffix}>m</Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={[styles.inputGroup, { flex: 2, borderColor: C.cyan + '55' }]}>
+                  <TextInput
+                    ref={gpsLatRef}
+                    style={styles.input}
+                    value={gpsLat}
+                    onChangeText={setGpsLat}
+                    keyboardType="decimal-pad"
+                    placeholder="LAT"
+                    placeholderTextColor={C.textDim}
+                    returnKeyType="next"
+                    onSubmitEditing={() => gpsLonRef.current?.focus()}
+                  />
+                </View>
+                <View style={[styles.inputGroup, { flex: 2, borderColor: C.cyan + '55' }]}>
+                  <TextInput
+                    ref={gpsLonRef}
+                    style={styles.input}
+                    value={gpsLon}
+                    onChangeText={setGpsLon}
+                    keyboardType="decimal-pad"
+                    placeholder="LON"
+                    placeholderTextColor={C.textDim}
+                    returnKeyType="next"
+                    onSubmitEditing={() => gpsAltRef.current?.focus()}
+                  />
+                </View>
+                <View style={[styles.inputGroup, { borderColor: C.cyan + '55' }]}>
+                  <TextInput
+                    ref={gpsAltRef}
+                    style={styles.input}
+                    value={gpsAlt}
+                    onChangeText={setGpsAlt}
+                    keyboardType="numeric"
+                    placeholder="ALT"
+                    placeholderTextColor={C.textDim}
+                    returnKeyType="done"
+                  />
+                  <Text style={styles.inputSuffix}>m</Text>
+                </View>
+              </>
+            )}
+            <TouchableOpacity style={[styles.addBtn, routeMode === 'outdoor' && { borderColor: C.cyan + '88', backgroundColor: C.cyan + '20' }]} onPress={addWaypoint} activeOpacity={0.75}>
+              <Text style={[styles.addBtnText, routeMode === 'outdoor' && { color: C.cyan }]}>+</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -540,51 +728,101 @@ export const WaypointScreen: React.FC = () => {
             <Text style={styles.modalTitle}>EDITAR WAYPOINT #{editIndex + 1}</Text>
 
             <View style={styles.modalInputRow}>
-              <View style={styles.modalInputGroup}>
-                <Text style={styles.modalInputLabel}>F</Text>
-                <TextInput
-                  ref={editModalRef}
-                  style={styles.modalInput}
-                  value={editFwd}
-                  onChangeText={setEditFwd}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  placeholderTextColor={C.textDim}
-                  returnKeyType="next"
-                  onSubmitEditing={() => editModalRightRef.current?.focus()}
-                />
-                <Text style={styles.modalInputUnit}>m</Text>
-              </View>
-              <View style={styles.modalInputGroup}>
-                <Text style={styles.modalInputLabel}>R</Text>
-                <TextInput
-                  ref={editModalRightRef}
-                  style={styles.modalInput}
-                  value={editRight}
-                  onChangeText={setEditRight}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  placeholderTextColor={C.textDim}
-                  returnKeyType="next"
-                  onSubmitEditing={() => editModalUpRef.current?.focus()}
-                />
-                <Text style={styles.modalInputUnit}>m</Text>
-              </View>
-              <View style={styles.modalInputGroup}>
-                <Text style={styles.modalInputLabel}>U</Text>
-                <TextInput
-                  ref={editModalUpRef}
-                  style={styles.modalInput}
-                  value={editUp}
-                  onChangeText={setUpEdit}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  placeholderTextColor={C.textDim}
-                  returnKeyType="done"
-                  onSubmitEditing={saveEditModal}
-                />
-                <Text style={styles.modalInputUnit}>m</Text>
-              </View>
+              {editingWp?.mode === 'outdoor' ? (
+                <>
+                  <View style={[styles.modalInputGroup, { flex: 1 }]}>
+                    <Text style={[styles.modalInputLabel, { color: C.cyan }]}>LAT</Text>
+                    <TextInput
+                      ref={editModalRef}
+                      style={[styles.modalInput, { borderColor: C.cyan + '44' }]}
+                      value={editLat}
+                      onChangeText={setEditLat}
+                      keyboardType="decimal-pad"
+                      placeholder="0.000000"
+                      placeholderTextColor={C.textDim}
+                      returnKeyType="next"
+                      onSubmitEditing={() => editModalRightRef.current?.focus()}
+                    />
+                  </View>
+                  <View style={[styles.modalInputGroup, { flex: 1 }]}>
+                    <Text style={[styles.modalInputLabel, { color: C.cyan }]}>LON</Text>
+                    <TextInput
+                      ref={editModalRightRef}
+                      style={[styles.modalInput, { borderColor: C.cyan + '44' }]}
+                      value={editLon}
+                      onChangeText={setEditLon}
+                      keyboardType="decimal-pad"
+                      placeholder="0.000000"
+                      placeholderTextColor={C.textDim}
+                      returnKeyType="next"
+                      onSubmitEditing={() => editModalUpRef.current?.focus()}
+                    />
+                  </View>
+                  <View style={[styles.modalInputGroup, { flex: 1 }]}>
+                    <Text style={[styles.modalInputLabel, { color: C.cyan }]}>ALT</Text>
+                    <TextInput
+                      ref={editModalUpRef}
+                      style={[styles.modalInput, { borderColor: C.cyan + '44' }]}
+                      value={editAlt}
+                      onChangeText={setEditAlt}
+                      keyboardType="numeric"
+                      placeholder="10"
+                      placeholderTextColor={C.textDim}
+                      returnKeyType="done"
+                      onSubmitEditing={saveEditModal}
+                    />
+                    <Text style={styles.modalInputUnit}>m</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.modalInputGroup}>
+                    <Text style={styles.modalInputLabel}>F</Text>
+                    <TextInput
+                      ref={editModalRef}
+                      style={styles.modalInput}
+                      value={editFwd}
+                      onChangeText={setEditFwd}
+                      keyboardType="numeric"
+                      placeholder="0"
+                      placeholderTextColor={C.textDim}
+                      returnKeyType="next"
+                      onSubmitEditing={() => editModalRightRef.current?.focus()}
+                    />
+                    <Text style={styles.modalInputUnit}>m</Text>
+                  </View>
+                  <View style={styles.modalInputGroup}>
+                    <Text style={styles.modalInputLabel}>R</Text>
+                    <TextInput
+                      ref={editModalRightRef}
+                      style={styles.modalInput}
+                      value={editRight}
+                      onChangeText={setEditRight}
+                      keyboardType="numeric"
+                      placeholder="0"
+                      placeholderTextColor={C.textDim}
+                      returnKeyType="next"
+                      onSubmitEditing={() => editModalUpRef.current?.focus()}
+                    />
+                    <Text style={styles.modalInputUnit}>m</Text>
+                  </View>
+                  <View style={styles.modalInputGroup}>
+                    <Text style={styles.modalInputLabel}>U</Text>
+                    <TextInput
+                      ref={editModalUpRef}
+                      style={styles.modalInput}
+                      value={editUp}
+                      onChangeText={setUpEdit}
+                      keyboardType="numeric"
+                      placeholder="0"
+                      placeholderTextColor={C.textDim}
+                      returnKeyType="done"
+                      onSubmitEditing={saveEditModal}
+                    />
+                    <Text style={styles.modalInputUnit}>m</Text>
+                  </View>
+                </>
+              )}
             </View>
 
             <View style={styles.modalActions}>
@@ -688,6 +926,42 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '900',
     letterSpacing: 0.8,
+  },
+
+  // ── MODE TOGGLE ──
+  modeToggleRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 6,
+  },
+  modeToggleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: C.hairline,
+    backgroundColor: C.bgElevated,
+  },
+  modeToggleBtnActive: {
+    borderColor: VIOLET + '88',
+    backgroundColor: VIOLET + '15',
+  },
+  modeToggleBtnActiveGps: {
+    borderColor: C.cyan + '88',
+    backgroundColor: C.cyan + '15',
+  },
+  modeToggleIcon: {
+    fontSize: 18,
+  },
+  modeToggleLabel: {
+    color: C.textMuted,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 
   // ── INPUT PANEL ──

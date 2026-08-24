@@ -173,6 +173,16 @@ async def get_telemetry_data(mav_controller) -> dict:
 
         if telemetry is None and hasattr(mav_controller, "get_telemetry"):
             sim = mav_controller.get_telemetry()
+            rc_data = {}
+            rc = getattr(mav_controller, "rc", None)
+            if rc:
+                rv = rc.get_current_values()
+                rc_data = {
+                    "rc_throttle_pwm": rv.get("throttle_pwm"),
+                    "rc_roll_pwm":     rv.get("roll_pwm"),
+                    "rc_pitch_pwm":    rv.get("pitch_pwm"),
+                    "rc_yaw_pwm":      rv.get("yaw_pwm"),
+                }
             return {
                 "armed":             mav_controller.is_armed(),
                 "mode":              mav_controller.get_mode(),
@@ -190,6 +200,7 @@ async def get_telemetry_data(mav_controller) -> dict:
                 "satellites":        sim.get("gps", {}).get("satellites", 0),
                 "hdop":              sim.get("gps", {}).get("hdop", 0),
                 **sensors,
+                **rc_data,
             }
 
         if telemetry is None:
@@ -202,6 +213,17 @@ async def get_telemetry_data(mav_controller) -> dict:
         gps      = telemetry.get_gps()      or {}
         battery  = telemetry.get_battery()  or {}
         velocity = telemetry.get_velocity() or {}
+
+        rc_data = {}
+        rc = getattr(mav_controller, "rc", None)
+        if rc:
+            rv = rc.get_current_values()
+            rc_data = {
+                "rc_throttle_pwm": rv.get("throttle_pwm"),
+                "rc_roll_pwm":     rv.get("roll_pwm"),
+                "rc_pitch_pwm":    rv.get("pitch_pwm"),
+                "rc_yaw_pwm":      rv.get("yaw_pwm"),
+            }
 
         return {
             "armed":             mav_controller.is_armed(),
@@ -220,6 +242,7 @@ async def get_telemetry_data(mav_controller) -> dict:
             "satellites":        gps.get("satellites", gps.get("satellites_visible", 0)),
             "hdop":              gps.get("hdop", 0),
             **sensors,
+            **rc_data,
         }
 
     except Exception as e:
