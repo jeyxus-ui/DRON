@@ -22,6 +22,8 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
   rightColor = '#3B82F6',
   leftResetToBottom = false,
 }) => {
+  const leftResetToBottomRef = useRef(leftResetToBottom);
+  useEffect(() => { leftResetToBottomRef.current = leftResetToBottom; }, [leftResetToBottom]);
   const containerRef = useRef<View>(null);
   const containerPos = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const activeTouches = useRef<Map<number, { side: 'left' | 'right' }>>(new Map());
@@ -138,11 +140,13 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
       if (info.side === 'left') {
         if (!hasLeftTouch()) {
           onLeftTouchActive?.(false);
+          const throttleTarget = leftResetToBottomRef.current ? leftMaxDist : 0;
+          const throttleValue = leftResetToBottomRef.current ? -1 : 0;
           Animated.parallel([
             Animated.spring(leftAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
-            Animated.spring(leftAnimY, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
+            Animated.spring(leftAnimY, { toValue: throttleTarget, useNativeDriver: true, tension: 150, friction: 10 }),
           ]).start();
-          onLeftMove(0, 0);
+          onLeftMove(0, throttleValue);
         }
       } else {
         Animated.parallel([
