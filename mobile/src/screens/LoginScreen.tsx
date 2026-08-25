@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
@@ -82,10 +83,15 @@ export const LoginScreen: React.FC = () => {
         {/* ── Marca ── */}
         <View style={styles.brand}>
           <View style={styles.brandBadge}>
-            <Text style={styles.brandIcon}>▲</Text>
+            <Image
+              source={require('../../assets/ic_launcher.png')}
+              style={styles.brandIcon}
+              resizeMode="cover"
+            />
           </View>
-          <Text style={styles.brandTitle}>DRON GCS</Text>
+          <Text style={styles.brandTitle}>Ojo de dios</Text>
           <Text style={styles.brandSub}>CONTROL TÁCTICO · SEGURIDAD</Text>
+          <Text style={styles.brandUni}>UNIVERSITARIA DE COLOMBIA</Text>
         </View>
 
         {/* ── Tarjeta de login ── */}
@@ -191,9 +197,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   brandIcon: {
-    color: C.primary,
-    fontSize: 30,
-    fontWeight: '900',
+    width: 52,
+    height: 52,
+    borderRadius: 12,
   },
   brandTitle: {
     color: C.navy,
@@ -206,6 +212,13 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 2.5,
+  },
+  brandUni: {
+    color: C.primary,
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 2,
+    marginTop: 2,
   },
 
   card: {

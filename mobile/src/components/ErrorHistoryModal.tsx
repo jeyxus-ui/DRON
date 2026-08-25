@@ -76,7 +76,7 @@ const ErrorRow: React.FC<{ error: AppError }> = ({ error }) => {
 };
 
 export const ErrorHistoryModal: React.FC = () => {
-  const { errors, errorHistory, clearErrorHistory } = useDrone();
+  const { errors, errorHistory, clearErrors, clearErrorHistory } = useDrone();
   const [visible, setVisible] = useState(false);
   const insets = useSafeAreaInsets();
 
@@ -129,7 +129,7 @@ export const ErrorHistoryModal: React.FC = () => {
                 <Text style={styles.statValue}>{errorHistory.reduce((s, e) => s + e.count, 0)}</Text>
                 <Text style={styles.statLabel}>total ocurrencias</Text>
               </View>
-              <TouchableOpacity style={styles.clearBtn} onPress={clearErrorHistory}>
+              <TouchableOpacity style={styles.clearBtn} onPress={() => { clearErrors(); clearErrorHistory(); }}>
                 <Text style={styles.clearBtnText}>Limpiar</Text>
               </TouchableOpacity>
             </View>

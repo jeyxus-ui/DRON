@@ -140,9 +140,9 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
           onLeftTouchActive?.(false);
           Animated.parallel([
             Animated.spring(leftAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
-            Animated.spring(leftAnimY, { toValue: leftMaxDist, useNativeDriver: true, tension: 150, friction: 10 }),
+            Animated.spring(leftAnimY, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
           ]).start();
-          onLeftMove(0, -1);
+          onLeftMove(0, 0);
         }
       } else {
         Animated.parallel([
@@ -183,7 +183,8 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
     const stickR = size / 4;
     const axisLabel = side === 'left' ? 'THR · ROLL' : 'PITCH · YAW';
     return (
-      <View style={{ width: size, height: size + 28, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ width: size, height: size + 36, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={[styles.label, { color }]}>{axisLabel}</Text>
         <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
           <View style={[styles.base, { width: size, height: size, borderRadius: size / 2, borderColor: color + '4D' }]}>
             <View style={[styles.ring, { width: size * 0.6, height: size * 0.6, borderRadius: size * 0.3, borderColor: color + '26' }]} />
@@ -208,7 +209,6 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
             <View style={styles.stickInner} />
           </Animated.View>
         </View>
-        <Text style={[styles.label, { color }]}>{axisLabel}</Text>
       </View>
     );
   };
@@ -263,12 +263,11 @@ const styles = StyleSheet.create({
   tickLeft: { width: 10, height: 3, left: '8%' },
   tickRight: { width: 10, height: 3, right: '8%' },
   label: {
-    position: 'absolute',
-    bottom: 2,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1,
     opacity: 0.85,
+    marginBottom: 6,
   },
   throttleTrack: {
     position: 'absolute',
