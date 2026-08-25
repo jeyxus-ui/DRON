@@ -75,9 +75,15 @@ class MAVController:
 
     def setup_params(self):
         """Set critical Pixhawk parameters for safe operation."""
+        import os
         params = {
             'DISARM_DELAY': 60,
         }
+        # INDOOR_MODE=1 → deshabilita check de GPS en ArduPilot (útil para pruebas internas)
+        # Bitmask 4086 = todos los checks excepto GPS (bit 3)
+        if os.getenv('INDOOR_MODE', '0') == '1':
+            params['ARMING_CHECK'] = 4086
+            logger.warning('⚠️ INDOOR_MODE activo — check GPS deshabilitado en ARMING_CHECK')
         for name, value in params.items():
             try:
                 result = self.set_param(name, value)
