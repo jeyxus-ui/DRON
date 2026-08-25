@@ -79,11 +79,11 @@ class MAVController:
         params = {
             'DISARM_DELAY': 60,
         }
-        # INDOOR_MODE=1 → deshabilita check de GPS en ArduPilot (útil para pruebas internas)
-        # Bitmask 4086 = todos los checks excepto GPS (bit 3)
+        # INDOOR_MODE=1 → deshabilita GPS y fence para pruebas internas sin señal GPS
         if os.getenv('INDOOR_MODE', '0') == '1':
-            params['ARMING_CHECK'] = 4086
-            logger.warning('⚠️ INDOOR_MODE activo — check GPS deshabilitado en ARMING_CHECK')
+            params['ARMING_CHECK'] = 4086  # todos los checks excepto GPS (bit 3)
+            params['FENCE_ENABLE'] = 0     # geofence requiere posición → desactivar indoor
+            logger.warning('⚠️ INDOOR_MODE activo — GPS y fence deshabilitados')
         for name, value in params.items():
             try:
                 result = self.set_param(name, value)
