@@ -278,6 +278,7 @@ async def process_command(command: dict, mav_controller) -> dict:
     Procesa comandos recibidos desde el cliente WebSocket.
     Todos los valores RC se esperan NORMALIZADOS (-1.0 a 1.0 / 0.0 a 1.0 para throttle).
     """
+    global _pending_mission_waypoints
     cmd_type = command.get("type", "")
     params   = command.get("params", {})
 
@@ -451,7 +452,6 @@ async def process_command(command: dict, mav_controller) -> dict:
                     })
                 success = await asyncio.to_thread(mav_controller.upload_mission, formatted)
                 if success:
-                    global _pending_mission_waypoints
                     _pending_mission_waypoints = formatted
                 return {"success": success, "message": f"Misión con {len(formatted)} waypoints subida" if success else "Error subiendo misión"}
             except Exception as e:
@@ -475,7 +475,6 @@ async def process_command(command: dict, mav_controller) -> dict:
                 abs_wps = waypoints_relative_to_gps(cur_lat, cur_lon, cur_alt, yaw, rel_wps)
                 success = await asyncio.to_thread(mav_controller.upload_mission, abs_wps)
                 if success:
-                    global _pending_mission_waypoints
                     _pending_mission_waypoints = abs_wps
                 return {"success": success, "message": f"Misión con {len(abs_wps)} waypoints subida" if success else "Error subiendo misión"}
             except Exception as e:
@@ -504,7 +503,6 @@ async def process_command(command: dict, mav_controller) -> dict:
                 from backend.api.rest import nav_controller as nc
                 if nc is not None:
                     nc.stop_navigation()
-                global _pending_mission_waypoints
                 _pending_mission_waypoints = []
                 success = await asyncio.to_thread(mav_controller.clear_mission)
                 return {"success": success, "message": "Misión limpiada" if success else "Error limpiando misión"}
