@@ -140,13 +140,11 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
       if (info.side === 'left') {
         if (!hasLeftTouch()) {
           onLeftTouchActive?.(false);
-          const throttleTarget = leftResetToBottomRef.current ? leftMaxDist : 0;
-          const throttleValue = leftResetToBottomRef.current ? -1 : 0;
           Animated.parallel([
             Animated.spring(leftAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
-            Animated.spring(leftAnimY, { toValue: throttleTarget, useNativeDriver: true, tension: 150, friction: 10 }),
+            Animated.spring(leftAnimY, { toValue: leftMaxDist, useNativeDriver: true, tension: 150, friction: 10 }),
           ]).start();
-          onLeftMove(0, throttleValue);
+          onLeftMove(0, -1);
         }
       } else {
         Animated.parallel([

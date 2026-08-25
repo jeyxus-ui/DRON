@@ -23,6 +23,7 @@ export const LoginScreen: React.FC = () => {
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [lockout, setLockout] = useState(0);
@@ -111,18 +112,27 @@ export const LoginScreen: React.FC = () => {
           />
 
           <Text style={styles.fieldLabel}>CONTRASEÑA</Text>
-          <TextInput
-            style={styles.input}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="••••••••"
-            placeholderTextColor={C.textDim}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="go"
-            onSubmitEditing={handleLogin}
-          />
+          <View style={styles.passwordRow}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="mínimo 8 caracteres"
+              placeholderTextColor={C.textDim}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="go"
+              onSubmitEditing={handleLogin}
+            />
+            <TouchableOpacity
+              style={styles.eyeBtn}
+              onPress={() => setShowPassword(v => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.eyeIcon}>{showPassword ? '○' : '●'}</Text>
+            </TouchableOpacity>
+          </View>
 
           {error !== '' && (
             <View style={styles.errorBox}>
@@ -254,6 +264,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'monospace',
     letterSpacing: 1,
+  },
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passwordInput: {
+    flex: 1,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    borderRightWidth: 0,
+  },
+  eyeBtn: {
+    backgroundColor: C.bgElevated,
+    borderWidth: 1.5,
+    borderColor: C.hairlineStrong,
+    borderLeftWidth: 0,
+    borderTopRightRadius: theme.radii.md,
+    borderBottomRightRadius: theme.radii.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eyeIcon: {
+    color: C.primary,
+    fontSize: 16,
+    fontWeight: '700',
   },
   errorBox: {
     backgroundColor: C.dangerDim,
