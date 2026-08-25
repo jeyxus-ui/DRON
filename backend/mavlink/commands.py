@@ -24,6 +24,17 @@ class DroneCommands:
 
     # ── Comandos básicos ───────────────────────────────────────────────────────
 
+    def _get_prearm_reason(self) -> str:
+        """Devuelve los últimos mensajes PreArm de ArduPilot como string de diagnóstico."""
+        try:
+            with self.conn._prearm_lock:
+                msgs = list(self.conn._prearm_msgs)
+            if msgs:
+                return ": " + " | ".join(msgs)
+        except Exception:
+            pass
+        return ""
+
     def _is_armed(self) -> bool:
         """Verifica si el dron está armado usando la cache de telemetry.
         NO lee del socket directamente para evitar competir con _read_loop."""
@@ -48,10 +59,12 @@ class DroneCommands:
                     logger.info(f"ACK found: cmd={ack.command} result={ack.result}")
                     if ack.result == 0:
                         return True
-                    if ack.result == 4:
+                    if ack.result == 5:  # MAV_RESULT_IN_PROGRESS (spec: 5, no 4)
                         deadline = time.time() + 15
                     else:
-                        raise ConnectionError(f"ACK rechazado: result={ack.result}")
+                        # 1=TEMPORARILY_REJECTED 2=DENIED 3=UNSUPPORTED 4=FAILED
+                        prearm = self._get_prearm_reason()
+                        raise ConnectionError(f"ARM rechazado por Pixhawk (result={ack.result}){prearm}")
             time.sleep(0.05)
         return False
 
@@ -67,6 +80,10 @@ class DroneCommands:
                 self.set_mode("STABILIZE")
             except Exception as e:
                 logger.warning(f"No se pudo cambiar a STABILIZE: {e}")
+
+        # Limpiar mensajes PreArm anteriores antes de este intento
+        with self.conn._prearm_lock:
+            self.conn._prearm_msgs.clear()
 
         if force and not self.conn._ekf_ready.is_set():
             logger.info("⏳ Esperando EKF alignment antes de enviar ARM...")
@@ -115,7 +132,10 @@ class DroneCommands:
             if attempt < max_attempts - 1:
                 time.sleep(2)
 
-        raise ConnectionError("Pixhawk no respondió al comando ARM tras %d intentos — verifica conexión MAVLink y heartbeat" % max_attempts)
+        prearm = self._get_prearm_reason()
+        if prearm:
+            raise ConnectionError(f"ARM rechazado por Pixhawk{prearm}. Verifica: safety switch, GPS fix, calibración de brújula/IMU")
+        raise ConnectionError("Pixhawk no respondió al comando ARM tras %d intentos — verifica: safety switch físico, conexión MAVLink y heartbeat" % max_attempts)
 
     def _send_disarm_cmd(self, force=False):
         """Enviar comando DISARM via command_long. force=True usa param2=21196 (magic_force_arm_disarm_value en ArduPilot).

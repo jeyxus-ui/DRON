@@ -48,9 +48,12 @@ class RealSenseCamera:
         self._width        = 640
         self._height       = 480
         self._fps          = 30
-        self.demo          = False
-        self._rs_active    = False
-        self._rs_pipe      = None
+        self.demo              = False
+        self._rs_active        = False
+        self._rs_pipe          = None
+        self._rs_align         = None
+        self.current_depth_frame = None
+        self._depth_scale      = 0.001
 
     def start(self, width: int = 640, height: int = 480, fps: int = 30, source: str | None = None):
         self._width  = width
@@ -97,7 +100,11 @@ class RealSenseCamera:
                     pipe = rs.pipeline()
                     cfg  = rs.config()
                     cfg.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
-                    pipe.start(cfg)
+                    cfg.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
+                    profile = pipe.start(cfg)
+                    depth_sensor = profile.get_device().first_depth_sensor()
+                    self._depth_scale = depth_sensor.get_depth_scale()
+                    self._rs_align  = rs.align(rs.stream.color)
                     self._rs_pipe   = pipe
                     self._rs_active = True
                 except Exception:
@@ -137,8 +144,12 @@ class RealSenseCamera:
         if self._rs_active and self._rs_pipe is not None:
             try:
                 frames = self._rs_pipe.wait_for_frames()
+                if self._rs_align is not None:
+                    frames = self._rs_align.process(frames)
                 cf = frames.get_color_frame()
+                df = frames.get_depth_frame()
                 if cf is not None:
+                    self.current_depth_frame = np.asanyarray(df.get_data()) if df else None
                     return np.asanyarray(cf.get_data())
             except Exception:
                 return None
@@ -167,7 +178,8 @@ class RealSenseCamera:
         while self.running:
             frame = self._grab_frame()
             if frame is not None:
-                markers = detector.detect(frame)
+                depth = self.current_depth_frame
+                markers = detector.detect(frame, depth_frame=depth, depth_scale=self._depth_scale)
                 overlay = detector.draw_overlay(frame, markers)
                 _check_auto_avoid(markers)
                 with self.lock:

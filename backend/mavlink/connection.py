@@ -41,6 +41,10 @@ class MAVLinkConnection:
         self._post_reconnect = None               # callback después de reconectar con éxito
         self._suppress_probe = False              # Suprimir probes durante ARM/TAKEOFF/misión
 
+        # Mensajes PreArm/Arm de ArduPilot — para diagnóstico de ARM rechazado
+        self._prearm_msgs: list[str] = []
+        self._prearm_lock = threading.Lock()
+
         # Heartbeat health tracking
         self.last_heartbeat: float = 0.0         # timestamp del último HEARTBEAT recibido
         self.heartbeat_healthy = False           # True si se recibió HEARTBEAT recientemente
@@ -492,7 +496,7 @@ class MAVLinkConnection:
 
     def wait_ack(self, command_id=None, timeout=5):
         MAV_RESULT_ACCEPTED = 0
-        MAV_RESULT_IN_PROGRESS = 4
+        MAV_RESULT_IN_PROGRESS = 5  # MAVLink spec: 4=FAILED, 5=IN_PROGRESS
         deadline = time.time() + timeout
         while time.time() < deadline:
             with self._ack_lock:

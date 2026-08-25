@@ -135,7 +135,8 @@ class VisionDetector:
         try:
             from ultralytics import YOLO
             import os
-            model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'assets', 'models', 'yolov8n.pt')
+            _local = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'assets', 'models', 'yolov8n.pt')
+            model_path = _local if os.path.exists(_local) else 'yolov8n.pt'
             def _load():
                 try:
                     self._model = YOLO(model_path)
@@ -151,7 +152,7 @@ class VisionDetector:
             logger.warning("ultralytics no instalado, detección YOLO deshabilitada")
             self._model_loaded.set()
 
-    def detect(self, frame: np.ndarray) -> list[Detection]:
+    def detect(self, frame: np.ndarray, depth_frame=None, depth_scale: float = 0.001) -> list[Detection]:
         if frame is None or self._vision_disabled:
             return []
         if not self._model_ready:
@@ -173,10 +174,19 @@ class VisionDetector:
                         conf = float(boxes.conf[i])
                         x1, y1, x2, y2 = boxes.xyxy[i].tolist()
                         bbox_h = y2 - y1
-                        bbox_w = x2 - x1
                         label = self._model.names[cls_id] if self._model.names else str(cls_id)
-                        known_h = KNOWN_HEIGHTS.get(cls_id, 0.5)
-                        distance = (known_h * FOCAL_LENGTH_ESTIMATE) / bbox_h if bbox_h > 0 else 999.0
+
+                        # Use real RealSense depth when available
+                        distance = 999.0
+                        if depth_frame is not None:
+                            roi = depth_frame[max(0, int(y1)):int(y2), max(0, int(x1)):int(x2)]
+                            valid = roi[roi > 0]
+                            if len(valid) > 0:
+                                distance = float(np.median(valid)) * depth_scale
+                        if distance == 999.0:
+                            known_h = KNOWN_HEIGHTS.get(cls_id, 0.5)
+                            distance = (known_h * FOCAL_LENGTH_ESTIMATE) / bbox_h if bbox_h > 0 else 999.0
+
                         if distance > SAFE_DISTANCE_M:
                             zone = "safe"
                         elif distance > WARNING_DISTANCE_M:

@@ -195,6 +195,12 @@ class DroneTelemetry:
                         except Exception:
                             text = str(msg.text)
                         print(f"[MAVLINK-DEBUG] STATUSTEXT: {text}", flush=True)
+                        # Capturar mensajes PreArm/Arm para diagnóstico de ARM rechazado
+                        text_lower = text.lower()
+                        if "prearm" in text_lower or "arm" in text_lower:
+                            with self.conn._prearm_lock:
+                                self.conn._prearm_msgs.append(text.strip())
+                                self.conn._prearm_msgs = self.conn._prearm_msgs[-5:]
                         if not self.conn._ekf_ready.is_set() and ("tilt alignment complete" in text or "yaw alignment complete" in text):
                             self.conn._ekf_ready.set()
                             logger.info("✅ EKF alignment detected: %s", text)
