@@ -82,7 +82,7 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
     rightAnimX.setValue(dxClamped);
     rightAnimY.setValue(dyClamped);
 
-    const x = dxClamped / rightMaxDist;  // derecha = +yaw
+    const x = dxClamped / rightMaxDist;  // derecha = +roll
     const y = -dyClamped / rightMaxDist; // arriba = +pitch
 
     onRightMove(x, y);
@@ -183,7 +183,7 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
     showThrottle: boolean,
   ) => {
     const stickR = size / 4;
-    const axisLabel = side === 'left' ? 'THR · ROLL' : 'PITCH · YAW';
+    const axisLabel = side === 'left' ? 'THR · YAW' : 'PITCH · ROLL';
     return (
       <View style={{ width: size, height: size + 36, justifyContent: 'center', alignItems: 'center' }}>
         <Text style={[styles.label, { color }]}>{axisLabel}</Text>

@@ -281,7 +281,7 @@ export const DroneControlScreen: React.FC = () => {
     fcRef.current?.setTargetSticks(leftStickRef.current, rightStickRef.current);
     fcRef.current?.start();
     lastLeftRef.current = { x, y: thr };
-    setNormalizedValues(prev => ({ ...prev, thrNorm: thr, roll: x }));
+    setNormalizedValues(prev => ({ ...prev, thrNorm: thr, yaw: x }));
     evalHold();
   };
 
@@ -289,7 +289,7 @@ export const DroneControlScreen: React.FC = () => {
     rightStickRef.current = { x, y };
     fcRef.current?.setTargetSticks(leftStickRef.current, rightStickRef.current);
     fcRef.current?.start();
-    setNormalizedValues(prev => ({ ...prev, pitch: y, yaw: x }));
+    setNormalizedValues(prev => ({ ...prev, pitch: y, roll: x }));
   };
 
   const runCommand = async (fn: () => Promise<{ success: boolean; message: string }>) => {
