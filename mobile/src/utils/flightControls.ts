@@ -5,9 +5,9 @@
  * NO controla motores directamente: produce los comandos throttle/roll/pitch/yaw
  * que luego son interpretados por un controlador de vuelo (MAVLink/Pixhawk).
  *
- * Mapeo Mode 2 estándar:
- *   Joystick IZQUIERDO : Y = throttle (arriba +), X = yaw  (derecha +)
- *   Joystick DERECHO   : Y = pitch    (arriba +), X = roll (derecha +)
+ * Mapeo de control:
+ *   Joystick IZQUIERDO : Y = throttle/altura (arriba +), X = lateral/roll (derecha +)
+ *   Joystick DERECHO   : Y = pitch/avance    (arriba +), X = yaw/giro    (derecha +)
  *
  * Rangos de salida:
  *   roll/pitch/yaw : -1.0 .. 1.0
@@ -94,9 +94,9 @@ export function mapMode2(
 ): FlightCommands {
   return {
     throttle: shapeAxis(left.y,  cfg.throttle),
-    yaw:      shapeAxis(left.x,  cfg.yaw),
+    roll:     shapeAxis(left.x,  cfg.roll),
     pitch:    shapeAxis(right.y, cfg.pitch),
-    roll:     shapeAxis(right.x, cfg.roll),
+    yaw:      shapeAxis(right.x, cfg.yaw),
   };
 }
 

@@ -281,7 +281,7 @@ export const DroneControlScreen: React.FC = () => {
     fcRef.current?.setTargetSticks(leftStickRef.current, rightStickRef.current);
     fcRef.current?.start();
     lastLeftRef.current = { x, y: thr };
-    setNormalizedValues(prev => ({ ...prev, thrNorm: thr, yaw: x }));
+    setNormalizedValues(prev => ({ ...prev, thrNorm: thr, roll: x }));
     evalHold();
   };
 
@@ -289,7 +289,7 @@ export const DroneControlScreen: React.FC = () => {
     rightStickRef.current = { x, y };
     fcRef.current?.setTargetSticks(leftStickRef.current, rightStickRef.current);
     fcRef.current?.start();
-    setNormalizedValues(prev => ({ ...prev, pitch: y, roll: x }));
+    setNormalizedValues(prev => ({ ...prev, pitch: y, yaw: x }));
   };
 
   const runCommand = async (fn: () => Promise<{ success: boolean; message: string }>) => {
@@ -692,7 +692,7 @@ export const DroneControlScreen: React.FC = () => {
             {holdIndicator}
             <View style={styles.pwmContainer}>
               <View style={styles.pwmCol}>
-                <Text style={styles.joystickLabel}>THR / YAW</Text>
+                <Text style={styles.joystickLabel}>ALT / LATERAL</Text>
                 <View style={styles.pwmRow}>
                   <View style={[styles.pwmChip, { borderColor: BORDER }]}>
                     <Text style={styles.pwmLabel}>THR</Text>
@@ -711,7 +711,7 @@ export const DroneControlScreen: React.FC = () => {
                 </View>
               </View>
               <View style={styles.pwmCol}>
-                <Text style={styles.joystickLabel}>PITCH / ROLL</Text>
+                <Text style={styles.joystickLabel}>PITCH / YAW</Text>
                 <View style={styles.pwmRow}>
                   <View style={[styles.pwmChip, { borderColor: BORDER }]}>
                     <Text style={styles.pwmLabel}>PIT</Text>
@@ -720,7 +720,7 @@ export const DroneControlScreen: React.FC = () => {
                     </Text>
                   </View>
                   <View style={[styles.pwmChip, { borderColor: BORDER }]}>
-                    <Text style={styles.pwmLabel}>RLL</Text>
+                    <Text style={styles.pwmLabel}>LAT</Text>
                     <Text style={[styles.pwmValue, { color: pwmDisplay.roll !== 1500 ? C.cyan : LABEL }]}>
                       {pwmDisplay.roll}
                     </Text>
