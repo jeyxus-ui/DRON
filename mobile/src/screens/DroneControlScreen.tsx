@@ -67,7 +67,9 @@ export const DroneControlScreen: React.FC = () => {
   const { width: winW, height: winH } = useWindowDimensions();
   const isLandscape = winW > winH;
   const refDim = Math.min(winW, winH);
-  const joySize = isLandscape ? refDim * 0.36 : refDim * 0.18;
+  const joySize = isLandscape
+    ? Math.min(Math.max(refDim * 0.25, 80), 120)
+    : Math.min(Math.max(winW * 0.30, 100), winW * 0.35);
   const panelWidth = winW * 0.72;
 
   const deviceLoc = useDeviceLocation();
@@ -437,7 +439,7 @@ export const DroneControlScreen: React.FC = () => {
           </View>
 
           {/* ── CAMERA + METRICS OVERLAY ── */}
-          <View style={[styles.cameraSection, { height: winH * 0.35 }]}>
+          <View style={[styles.cameraSection, { height: Math.min(Math.max(winH * 0.28, 80), 200) }]}>
             <View style={styles.cameraContainer}>
               {cameraState === 'loading' ? (
                 <View style={styles.cameraOff}>
@@ -642,7 +644,7 @@ export const DroneControlScreen: React.FC = () => {
           </View>
 
           {/* ── JOYSTICKS LANDSCAPE ── */}
-          <View style={styles.joystickSectionLandscape}>
+          <View style={[styles.joystickSectionLandscape, { bottom: insets.bottom + 28 }]}>
             <DualJoystick
               onLeftMove={handleLeftJoystick}
               onRightMove={handleRightJoystick}
@@ -1219,8 +1221,9 @@ const styles = StyleSheet.create({
 
   // ── Landscape-specific ──
   metricChipsLandscape: {
-    position: 'absolute', top: 30, left: 4, right: 4,
+    position: 'absolute', bottom: 8, left: 4, right: 4,
     flexDirection: 'row', justifyContent: 'center', gap: 3,
+    zIndex: 8,
   },
   landscapeBody: {
     flex: 1,
@@ -1234,9 +1237,8 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   joystickSectionLandscape: {
-    position: 'absolute', bottom: 28, left: 0, right: 0,
-    flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
-    paddingVertical: 0,
+    position: 'absolute', left: 0, right: 0,
+    flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end',
     zIndex: 10,
   },
   bottomBarLandscape: {
