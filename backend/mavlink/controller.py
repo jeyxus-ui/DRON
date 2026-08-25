@@ -318,19 +318,14 @@ class MAVController:
                 mavutil.mavlink.MAV_PARAM_TYPE_REAL32
             )
 
-            # Esperar PARAM_VALUE desde el caché del read_loop (evita race condition)
+            # Esperar PARAM_VALUE desde el caché del read_loop — clave por param_id
+            key = f'PARAM_VALUE:{name}'
             deadline = time.time() + 5
             while time.time() < deadline:
                 with self.conn._pending_msgs_lock:
-                    msg = self.conn._pending_msgs.get('PARAM_VALUE')
-                    if msg is not None:
-                        try:
-                            pid = msg.param_id.decode('utf-8').strip('\x00')
-                        except Exception:
-                            pid = str(msg.param_id)
-                        if pid == name:
-                            self.conn._pending_msgs.pop('PARAM_VALUE', None)
-                            return msg.param_value
+                    msg = self.conn._pending_msgs.pop(key, None)
+                if msg is not None:
+                    return msg.param_value
                 time.sleep(0.05)
             raise TimeoutError("No se confirmó el parámetro")
         except Exception as e:
@@ -345,21 +340,21 @@ class MAVController:
                 name.encode('utf-8'),
                 -1
             )
-
-            msg = self.master.recv_match(type='PARAM_VALUE', blocking=True, timeout=3)
-            if not msg:
-                raise TimeoutError("No se recibió PARAM_VALUE")
-
-            try:
-                pid = msg.param_id.decode('utf-8').strip('\x00')
-            except Exception:
-                pid = str(msg.param_id)
-
-            return {
-                'param_id': pid,
-                'value': msg.param_value,
-                'type': msg.param_type
-            }
+            # Leer desde caché del read_loop (mismo patrón que set_param) para
+            # evitar llamadas concurrentes a recv_match que corrompen pymavlink
+            key = f'PARAM_VALUE:{name}'
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                with self.conn._pending_msgs_lock:
+                    msg = self.conn._pending_msgs.pop(key, None)
+                if msg is not None:
+                    try:
+                        pid = msg.param_id.decode('utf-8').strip('\x00')
+                    except Exception:
+                        pid = str(msg.param_id)
+                    return {'param_id': pid, 'value': msg.param_value, 'type': msg.param_type}
+                time.sleep(0.05)
+            raise TimeoutError("No se recibió PARAM_VALUE")
         except Exception as e:
             logger.error(f"Error getting param {name}: {e}")
             raise
