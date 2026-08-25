@@ -56,6 +56,11 @@ interface Telemetry {
   rc_roll_pwm?:              number;
   rc_pitch_pwm?:             number;
   rc_yaw_pwm?:               number;
+  // Estado NavigationController (vuelo autónomo con evasión)
+  nav_mode?:                 'IDLE' | 'NAVIGATING' | 'MISSION' | 'AVOIDING';
+  nav_waypoint_index?:       number;
+  nav_total_waypoints?:      number;
+  nav_avoidance_active?:     boolean;
   // Salud de conexión MAVLink
   connection_health?:        ConnectionHealth;
 }

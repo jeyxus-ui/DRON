@@ -692,6 +692,36 @@ export const WaypointScreen: React.FC = () => {
           )}
         </View>
 
+        {/* ── BANNER NAVEGACIÓN AUTÓNOMA ── */}
+        {telemetry?.nav_mode && telemetry.nav_mode !== 'IDLE' && (
+          <View style={[
+            styles.navStatusBanner,
+            telemetry.nav_mode === 'AVOIDING' && styles.navStatusBannerAvoiding,
+          ]}>
+            <Text style={styles.navStatusIcon}>
+              {telemetry.nav_mode === 'AVOIDING' ? '⚠️' :
+               telemetry.nav_mode === 'MISSION'  ? '🚁' : '➡️'}
+            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.navStatusTitle}>
+                {telemetry.nav_mode === 'AVOIDING'   ? 'ESQUIVANDO OBSTÁCULO' :
+                 telemetry.nav_mode === 'MISSION'     ? 'MISIÓN EN CURSO' :
+                 telemetry.nav_mode === 'NAVIGATING'  ? 'NAVEGANDO' : ''}
+              </Text>
+              {telemetry.nav_mode === 'MISSION' && (
+                <Text style={styles.navStatusSub}>
+                  Waypoint {(telemetry.nav_waypoint_index ?? 0) + 1} / {telemetry.nav_total_waypoints ?? 0}
+                </Text>
+              )}
+              {telemetry.nav_mode === 'AVOIDING' && (
+                <Text style={styles.navStatusSub}>
+                  LiDAR detectó obstáculo — recalculando ruta…
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
         {/* ── ACTION BUTTONS ── */}
         <View style={styles.actionBar}>
           <TouchableOpacity
@@ -1425,5 +1455,35 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.5,
+  },
+  navStatusBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#1a2a1a',
+    borderWidth: 1,
+    borderColor: '#2a6a2a',
+  },
+  navStatusBannerAvoiding: {
+    backgroundColor: '#2a1a00',
+    borderColor: '#cc7700',
+  },
+  navStatusIcon: {
+    fontSize: 22,
+  },
+  navStatusTitle: {
+    color: '#88ff88',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  navStatusSub: {
+    color: '#aaaaaa',
+    fontSize: 10,
+    marginTop: 2,
   },
 });

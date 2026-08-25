@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Almacena los waypoints GPS de la última misión subida para que START_MISSION
+# los pase al NavigationController (evasión + recalculo de ruta con LiDAR).
+_pending_mission_waypoints: list = []
+
 
 class ConnectionManager:
     def __init__(self):
@@ -124,6 +128,23 @@ async def telemetry_broadcaster(mav_controller):
             await asyncio.sleep(1)
 
 
+def _get_nav_status() -> dict:
+    """Estado del NavigationController (modo, waypoint actual, evasión)."""
+    try:
+        from backend.api.rest import nav_controller
+        if nav_controller is not None:
+            s = nav_controller.get_status()
+            return {
+                "nav_mode":             s.get("mode", "IDLE"),
+                "nav_waypoint_index":   s.get("waypoint_index", 0),
+                "nav_total_waypoints":  s.get("total_waypoints", 0),
+                "nav_avoidance_active": s.get("avoidance_active", False),
+            }
+    except Exception:
+        pass
+    return {}
+
+
 def _get_sensor_data():
     try:
         from backend.api.rest import sensor_manager, _external_sensor_data, _external_update_time
@@ -201,6 +222,7 @@ async def get_telemetry_data(mav_controller) -> dict:
                 "hdop":              sim.get("gps", {}).get("hdop", 0),
                 **sensors,
                 **rc_data,
+                **_get_nav_status(),
             }
 
         if telemetry is None:
@@ -243,6 +265,7 @@ async def get_telemetry_data(mav_controller) -> dict:
             "hdop":              gps.get("hdop", 0),
             **sensors,
             **rc_data,
+            **_get_nav_status(),
         }
 
     except Exception as e:
@@ -427,6 +450,9 @@ async def process_command(command: dict, mav_controller) -> dict:
                         'alt': wp.get('altitude') or wp.get('alt', 10),
                     })
                 success = await asyncio.to_thread(mav_controller.upload_mission, formatted)
+                if success:
+                    global _pending_mission_waypoints
+                    _pending_mission_waypoints = formatted
                 return {"success": success, "message": f"Misión con {len(formatted)} waypoints subida" if success else "Error subiendo misión"}
             except Exception as e:
                 return {"success": False, "message": f"Error en misión: {e}"}
@@ -448,12 +474,26 @@ async def process_command(command: dict, mav_controller) -> dict:
             try:
                 abs_wps = waypoints_relative_to_gps(cur_lat, cur_lon, cur_alt, yaw, rel_wps)
                 success = await asyncio.to_thread(mav_controller.upload_mission, abs_wps)
+                if success:
+                    global _pending_mission_waypoints
+                    _pending_mission_waypoints = abs_wps
                 return {"success": success, "message": f"Misión con {len(abs_wps)} waypoints subida" if success else "Error subiendo misión"}
             except Exception as e:
                 return {"success": False, "message": f"Error en misión relativa: {e}"}
 
         elif cmd_type == "START_MISSION":
             try:
+                from backend.api.rest import nav_controller as nc
+                if nc is not None and _pending_mission_waypoints:
+                    # Modo inteligente: nav_controller de Python maneja los GOTOs
+                    # y el LiDAR/RealSense pueden interrumpir y recalcular la ruta.
+                    await asyncio.to_thread(mav_controller.set_mode, "GUIDED")
+                    nc.start_mission(_pending_mission_waypoints)
+                    logger.info("[START_MISSION] Misión delegada al nav_controller "
+                                "(%d waypoints, evasión activa)", len(_pending_mission_waypoints))
+                    return {"success": True,
+                            "message": f"Misión iniciada con evasión activa ({len(_pending_mission_waypoints)} waypoints)"}
+                # Fallback: AUTO de ArduPilot si nav_controller no está disponible
                 success = await asyncio.to_thread(mav_controller.start_mission)
                 return {"success": success, "message": "Misión iniciada" if success else "Error iniciando misión"}
             except Exception as e:
@@ -461,6 +501,11 @@ async def process_command(command: dict, mav_controller) -> dict:
 
         elif cmd_type == "CLEAR_MISSION":
             try:
+                from backend.api.rest import nav_controller as nc
+                if nc is not None:
+                    nc.stop_navigation()
+                global _pending_mission_waypoints
+                _pending_mission_waypoints = []
                 success = await asyncio.to_thread(mav_controller.clear_mission)
                 return {"success": success, "message": "Misión limpiada" if success else "Error limpiando misión"}
             except Exception as e:
