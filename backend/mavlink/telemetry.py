@@ -218,6 +218,10 @@ class DroneTelemetry:
                             self.conn._pending_acks[msg.command] = msg
                             logger.info(f"COMMAND_ACK stored: cmd={msg.command} result={msg.result}")
                         self.conn.update_ack_time()
+                    # Guardar PARAM_VALUE para set_param / get_param
+                    elif mtype == "PARAM_VALUE":
+                        with self.conn._pending_msgs_lock:
+                            self.conn._pending_msgs[mtype] = msg
                     # Guardar mensajes de misión para upload_mission
                     elif mtype in ("MISSION_REQUEST_INT", "MISSION_REQUEST", "MISSION_ACK"):
                         with self.conn._pending_msgs_lock:

@@ -91,7 +91,14 @@ class MAVController:
             except Exception as e:
                 logger.warning('⚠️ Param set %s failed: %s', name, e)
 
-        # Verificar configuración de RC override (joystick virtual)
+        # Diagnóstico de RC override y fence — en hilo aparte para no bloquear startup
+        import threading
+        threading.Thread(target=self._diagnose_params, daemon=True).start()
+
+    def _diagnose_params(self):
+        """Verificación diagnóstica de parámetros — corre en background."""
+        import time as _time
+        _time.sleep(5)  # dar tiempo al Pixhawk a procesar set_param
         try:
             ov_time = self.read_param_safe('RC_OVERRIDE_TIME')
             if ov_time is not None and ov_time.get('value') == 0:
@@ -101,7 +108,6 @@ class MAVController:
                 logger.warning('⚠️ RC_OPTIONS bit 1 activado — ArduPilot ignora los overrides RC del GCS')
         except Exception as e:
             logger.debug('No se pudo verificar configuración RC override: %s', e)
-
         try:
             fence_en = self.read_param_safe('FENCE_ENABLE')
             if fence_en is not None and fence_en.get('value') == 0:
@@ -302,7 +308,7 @@ class MAVController:
             return False
 
     def set_param(self, name, value):
-        """Establecer un parámetro y esperar su confirmación"""
+        """Establecer un parámetro y esperar su confirmación via _pending_msgs."""
         try:
             self.master.mav.param_set_send(
                 self.master.target_system,
@@ -312,18 +318,20 @@ class MAVController:
                 mavutil.mavlink.MAV_PARAM_TYPE_REAL32
             )
 
-            # Esperar PARAM_VALUE con el nombre esperado
-            start = time.time()
-            while time.time() - start < 5:
-                msg = self.master.recv_match(type='PARAM_VALUE', blocking=True, timeout=1)
-                if not msg:
-                    continue
-                try:
-                    pid = msg.param_id.decode('utf-8').strip('\x00')
-                except Exception:
-                    pid = str(msg.param_id)
-                if pid == name:
-                    return msg.param_value
+            # Esperar PARAM_VALUE desde el caché del read_loop (evita race condition)
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                with self.conn._pending_msgs_lock:
+                    msg = self.conn._pending_msgs.get('PARAM_VALUE')
+                    if msg is not None:
+                        try:
+                            pid = msg.param_id.decode('utf-8').strip('\x00')
+                        except Exception:
+                            pid = str(msg.param_id)
+                        if pid == name:
+                            self.conn._pending_msgs.pop('PARAM_VALUE', None)
+                            return msg.param_value
+                time.sleep(0.05)
             raise TimeoutError("No se confirmó el parámetro")
         except Exception as e:
             logger.error(f"Error setting param {name}: {e}")

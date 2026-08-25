@@ -77,11 +77,14 @@ def startup_event():
         except Exception as e:
             logger.warning(f"⚠️ Error iniciando cámara (continuando sin ella): {e}")
         if getattr(rest, 'mav', None):
-            try:
-                rest.mav.setup_params()
-                logger.info("✅ Parámetros críticos configurados (DISARM_DELAY=60)")
-            except Exception as e:
-                logger.warning("⚠️ Error configurando parámetros: %s", e)
+            import threading
+            def _setup_params_bg():
+                try:
+                    rest.mav.setup_params()
+                    logger.info("✅ Parámetros críticos configurados")
+                except Exception as e:
+                    logger.warning("⚠️ Error configurando parámetros: %s", e)
+            threading.Thread(target=_setup_params_bg, daemon=True).start()
             websocket.start_telemetry_broadcast(rest.mav)
             logger.info("✅ Telemetry WebSocket iniciado")
             def vision_emergency():
