@@ -74,7 +74,7 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
     leftAnimX.setValue(tx);
     leftAnimY.setValue(ty);
 
-    const x = tx / leftMaxDist;        // derecha = +roll
+    const x = tx / leftMaxDist;        // derecha = +yaw (giro)
     const y = -ty / leftMaxDist;       // arriba = +throttle
 
     onLeftMove(x, y);
@@ -91,7 +91,7 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
     rightAnimX.setValue(dxClamped);
     rightAnimY.setValue(dyClamped);
 
-    const x = dxClamped / rightMaxDist;  // derecha = +yaw (giro)
+    const x = dxClamped / rightMaxDist;  // derecha = +roll (lateral)
     const y = -dyClamped / rightMaxDist; // arriba = +pitch (avance)
 
     onRightMove(x, y);
