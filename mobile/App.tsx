@@ -7,19 +7,21 @@ import { DroneControlScreen } from './src/screens/DroneControlScreen';
 import { TelemetryScreen }    from './src/screens/TelemetryScreen';
 import { GPSScreen } from './src/screens/GPSScreen';
 import { WaypointScreen }     from './src/screens/WaypointScreen';
+import { BenchTestScreen }    from './src/screens/BenchTestScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { ErrorHistoryModal } from './src/components/ErrorHistoryModal';
 import { theme } from './src/theme';
 
 const C = theme.colors;
 
-const TAB_ACCENTS = [C.primary, C.cyan, C.indigo, C.teal];
+const TAB_ACCENTS = [C.primary, C.cyan, C.indigo, C.teal, C.warning];
 
 const SCREENS = [
   { id: 'control',   component: DroneControlScreen, label: 'CONTROL', icon: '⚡', accent: TAB_ACCENTS[0] },
   { id: 'gps',       component: GPSScreen,           label: 'GPS',     icon: '🛰', accent: TAB_ACCENTS[1] },
   { id: 'waypoint',  component: WaypointScreen,      label: 'RUTA',    icon: '🎯', accent: TAB_ACCENTS[2] },
   { id: 'telemetry', component: TelemetryScreen,     label: 'DATA',    icon: '📡', accent: TAB_ACCENTS[3] },
+  { id: 'bench',     component: BenchTestScreen,     label: 'BENCH',   icon: '🧪', accent: TAB_ACCENTS[4] },
 ];
 
 const SplashScreen: React.FC = () => (
