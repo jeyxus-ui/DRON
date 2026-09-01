@@ -86,13 +86,13 @@ class MAVLinkConnection:
                 new_master = mavutil.mavlink_connection(
                     self.device,
                     baud=self.baud,
-                    source_system=255,
+                    source_system=254,  # distinto de Mission Planner (255) para evitar interferencia en mission upload
                 )
                 with self._lock:
                     self.master = new_master
 
                 logger.info("⏳ Esperando heartbeat...")
-                self.master.wait_heartbeat(timeout=5)
+                self.master.wait_heartbeat(timeout=15)
                 self.connected = True
                 self._setup_tcp_keepalive()
                 with self._heartbeat_lock:
@@ -103,6 +103,12 @@ class MAVLinkConnection:
                 with self._probe_lock:
                     self._last_ack_time = time.time()
                     self._probe_fail_count = 0
+                # Si target_system=0 (heartbeat de bridge/GCS, no del Pixhawk),
+                # forzar system=1 para que los comandos lleguen al autopiloto
+                if self.master.target_system == 0:
+                    self.master.target_system = 1
+                    self.master.target_component = 1
+                    logger.warning("⚠️ target_system=0 detectado — forzando system=1 (Pixhawk)")
                 logger.info(f"✅ Conectado (System: {self.master.target_system}, Component: {self.master.target_component})")
                 return True
 

@@ -53,6 +53,9 @@ class RCOverrideController:
         self.pitch    = 0.0
         self.roll     = 0.0
         self._armed   = False
+        # En GUIDED mode, liberamos todos los canales (65535) para que el
+        # autopilot controle throttle via su controlador de posición.
+        self._guided_mode = False
 
         self.lock = threading.Lock()
         self._send_failures = 0
@@ -145,10 +148,19 @@ class RCOverrideController:
                             continue
 
                 # ── Convertir a PWM y enviar ─────────────────────────────
-                ch_roll     = self._to_pwm(use_roll)
-                ch_pitch    = self._to_pwm(use_pitch)
-                ch_throttle = self._to_pwm_throttle(use_throttle)
-                ch_yaw      = self._to_pwm(use_yaw)
+                # En GUIDED mode: liberar todos los canales (65535) para que
+                # el autopilot controle throttle via su controlador de posición.
+                # Los comandos de movimiento se envían como velocidades en este modo.
+                with self.lock:
+                    in_guided = self._guided_mode
+
+                if in_guided:
+                    ch_roll = ch_pitch = ch_throttle = ch_yaw = 65535
+                else:
+                    ch_roll     = self._to_pwm(use_roll)
+                    ch_pitch    = self._to_pwm(use_pitch)
+                    ch_throttle = self._to_pwm_throttle(use_throttle)
+                    ch_yaw      = self._to_pwm(use_yaw)
 
                 master = getattr(self.conn, 'master', None)
                 if master is not None:
@@ -300,6 +312,15 @@ class RCOverrideController:
     def reset_controls(self):
         with self.lock:
             self.throttle = self.yaw = self.pitch = self.roll = 0.0
+
+    def set_guided_mode(self, is_guided: bool):
+        """Indica al RC controller si el drone está en GUIDED mode.
+        En GUIDED: libera todos los canales RC para que el autopilot controle throttle."""
+        with self.lock:
+            if is_guided != self._guided_mode:
+                self._guided_mode = is_guided
+                logger.info('RC override: modo GUIDED=%s — canales %s',
+                           is_guided, 'LIBERADOS (65535)' if is_guided else 'ACTIVOS')
 
     def set_armed(self, armed: bool):
         with self.lock:

@@ -69,6 +69,7 @@ class MAVController:
         self.rc = RCOverrideController(self.conn)
         self.rc._reconnect_callback = self._rearm_after_failsafe
         self.rc.start()
+        self.conn._rc_controller = self.rc  # exponer para _is_armed()
         # Callback desde telemetría HEARTBEAT para detectar armado real
         self.conn._rc_callback = self.rc.set_armed
         logger.info("RC Override Controller iniciado")
@@ -78,6 +79,7 @@ class MAVController:
         import os
         params = {
             'DISARM_DELAY': 60,
+            'BRD_SAFETY_DEFLT': 0,  # desactiva safety switch físico — el botón ARM del GCS es la puerta
         }
         # INDOOR_MODE=1 → deshabilita GPS y fence para pruebas internas sin señal GPS
         if os.getenv('INDOOR_MODE', '0') == '1':
@@ -232,11 +234,10 @@ class MAVController:
 
     # Basic commands
     def arm(self, force=True):
-        self.rc.set_armed(True)
         try:
             result = self.cmd.arm(force=force)
-            if not result and not self.is_armed():
-                self.rc.set_armed(False)
+            if result:
+                self.rc.set_armed(True)
             return result
         except Exception:
             self.rc.set_armed(False)
@@ -365,11 +366,12 @@ class MAVController:
         if not waypoints:
             raise ValueError("No waypoints provided")
 
-        # Pausar _read_loop para evitar race condition
-        with self.conn.pause_read():
-            return self._do_upload_mission(waypoints)
+        # Sin pause_read() — el _read_loop almacena MISSION_REQUEST en _pending_msgs
+        return self._do_upload_mission(waypoints)
 
     def _do_upload_mission(self, waypoints):
+        # Lee de _pending_msgs — el _read_loop almacena MISSION_REQUEST/ACK allí
+        # Sin recv_match directo → sin WinError 10038 en Windows TCP
         try:
             count = len(waypoints)
             self.master.mav.mission_count_send(
@@ -377,45 +379,65 @@ class MAVController:
                 self.master.target_component,
                 count
             )
+            logger.info(f"MISSION_COUNT enviado ({count} waypoints)")
 
             start_time = time.time()
+            sent_seqs = set()
 
             while True:
-                # Esperar petición de misión (usando protected para evitar race con _read_loop)
-                msg = self.conn.recv_match_protected('MISSION_REQUEST_INT', timeout=5)
-                if not msg:
-                    if time.time() - start_time > 10:
-                        raise TimeoutError("Timeout waiting for MISSION_REQUEST_INT")
+                if time.time() - start_time > 15:
+                    raise TimeoutError(f"Timeout subiendo misión (enviados {len(sent_seqs)}/{count})")
+
+                # Leer de _pending_msgs (llenado por _read_loop, sin race de socket)
+                msg = None
+                with self.conn._pending_msgs_lock:
+                    for mtype in ('MISSION_REQUEST_INT', 'MISSION_REQUEST', 'MISSION_ACK'):
+                        m = self.conn._pending_msgs.pop(mtype, None)
+                        if m is not None:
+                            msg = m
+                            break
+
+                if msg is None:
+                    time.sleep(0.05)
+                    continue
+
+                msg_type = msg.get_type()
+
+                if msg_type == 'MISSION_ACK':
+                    if len(sent_seqs) == count:
+                        logger.info(f"Misión subida OK — {count} wps, ACK={msg.type}")
+                        return True
                     continue
 
                 req_seq = msg.seq
                 if req_seq < 0 or req_seq >= count:
-                    logger.warning(f"Received invalid mission request seq={req_seq}")
                     continue
 
+                sent_seqs.add(req_seq)
                 wp = waypoints[req_seq]
-                lat = int(wp['lat'] * 1e7)
-                lon = int(wp['lon'] * 1e7)
-                alt = float(wp.get('alt', 10.0))
+                lat_f = float(wp['lat'])
+                lon_f = float(wp['lon'])
+                alt_f = float(wp.get('alt', 10.0))
 
-                # Enviar MISSION_ITEM_INT
-                self.master.mav.mission_item_int_send(
-                    self.master.target_system,
-                    self.master.target_component,
-                    req_seq,
-                    mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
-                    mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
-                    0, 1, 0, 0, 0, 0,
-                    lat, lon, alt
-                )
-
-                if req_seq == count - 1:
-                    # Esperar ACK (protected contra race con _read_loop)
-                    ack = self.conn.recv_match_protected('MISSION_ACK', timeout=5)
-                    if ack:
-                        return True
-                    else:
-                        raise TimeoutError("No se recibió MISSION_ACK")
+                if msg_type == 'MISSION_REQUEST_INT':
+                    self.master.mav.mission_item_int_send(
+                        self.master.target_system, self.master.target_component,
+                        req_seq,
+                        mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                        mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+                        0, 1, 0, 0, 0, 0,
+                        int(lat_f * 1e7), int(lon_f * 1e7), alt_f
+                    )
+                else:
+                    self.master.mav.mission_item_send(
+                        self.master.target_system, self.master.target_component,
+                        req_seq,
+                        mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                        mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+                        0, 1, 0, 0, 0, 0,
+                        lat_f, lon_f, alt_f
+                    )
+                logger.info(f"Waypoint {req_seq+1}/{count} enviado ({msg_type})")
 
         except Exception as e:
             logger.error(f"Error uploading mission: {e}")

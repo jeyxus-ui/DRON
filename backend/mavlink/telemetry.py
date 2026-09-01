@@ -316,6 +316,10 @@ class DroneTelemetry:
                 }
             
             elif msg_type == "HEARTBEAT":
+                # Solo procesar heartbeats del autopilot (sysid=1)
+                # Ignorar heartbeats de GCS (base_mode=0) que sobreescriben armed=False
+                if msg.get_srcSystem() != 1:
+                    return
                 self.conn.update_heartbeat()
                 was_armed = self.data['armed']
                 self.data['armed'] = bool(

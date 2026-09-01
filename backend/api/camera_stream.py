@@ -179,8 +179,35 @@ class RealSenseCamera:
             frame = self._grab_frame()
             if frame is not None:
                 depth = self.current_depth_frame
-                markers = detector.detect(frame, depth_frame=depth, depth_scale=self._depth_scale)
-                overlay = detector.draw_overlay(frame, markers)
+
+                # Punto 1: MTF-01 como fallback de distancia para objetos al frente
+                mtf_fwd = None
+                if _sensor_manager is not None:
+                    try:
+                        mtf_fwd = _sensor_manager.get_forward_distance()
+                    except Exception:
+                        pass
+
+                # En modo demo no hay cámara real — YOLO generaría falsos positivos
+                if self.demo:
+                    markers = []
+                    overlay = frame
+                else:
+                    markers = detector.detect(frame, depth_frame=depth, depth_scale=self._depth_scale,
+                                              mtf_forward_m=mtf_fwd)
+                    overlay = detector.draw_overlay(frame, markers)
+
+                # Punto 2+3: fusionar detecciones en obstacle_map vía SensorManager
+                if _sensor_manager is not None and markers:
+                    try:
+                        _sensor_manager.update_from_vision(
+                            markers,
+                            drone_yaw_deg=_sensor_manager._drone_yaw,
+                            frame_width=frame.shape[1],
+                        )
+                    except Exception:
+                        pass
+
                 _check_auto_avoid(markers)
                 with self.lock:
                     self.current_frame = overlay
@@ -248,6 +275,7 @@ camera = RealSenseCamera()
 detector = VisionDetector()
 _emergency_callback = None
 _last_critical_time = 0
+_sensor_manager = None          # SensorManager inyectado desde rest.init_navigation
 
 
 def set_emergency_callback(cb):
@@ -256,13 +284,21 @@ def set_emergency_callback(cb):
     logger.info("Emergency callback registered")
 
 
+def set_sensor_manager(sm):
+    """Inyecta el SensorManager para que la cámara alimente el obstacle_map."""
+    global _sensor_manager
+    _sensor_manager = sm
+    logger.info("SensorManager wired to camera_stream — visión fusionada con sensores")
+
+
 def _check_auto_avoid(markers: list) -> None:
     global _last_critical_time
     now = time.time()
     critical = [m for m in markers if m.zone == "critical"]
     if critical and (now - _last_critical_time) > 3:
         _last_critical_time = now
-        logger.warning(f"CRITICAL: {len(critical)} object(s) at <{WARNING_DISTANCE_M}m")
+        labels = ', '.join(set(m.label for m in critical))
+        logger.warning(f"CRITICAL: {len(critical)} objeto(s) a <{WARNING_DISTANCE_M}m [{labels}]")
         if _emergency_callback:
             try:
                 _emergency_callback()

@@ -1,9 +1,9 @@
 {
   "admin": {
-    "password_hash": "c93494fa9934074c9294177eb95cbce5a835e585cb8ccae30634169420babb6a",
-    "salt": "647c75281d6061747ab216a756c4135b",
+    "password_hash": "e13266bc377ef33aa316fd0eefe4fc749190bbbc7f4f79ec36e2d0cbaf30c5e4",
+    "salt": "4b4414e294a3b44bcda503ebd16f2e7f",
     "iterations": 600000,
     "role": "admin",
-    "created_at": "2026-08-13T03:30:02.343000+00:00"
+    "created_at": "2026-08-29T00:00:00.000000+00:00"
   }
 }

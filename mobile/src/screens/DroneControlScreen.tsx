@@ -118,7 +118,9 @@ export const DroneControlScreen: React.FC = () => {
   const HOLD_ARM_SECONDS = 3;
   const [holdProgress, setHoldProgress] = useState(0);
   const lastLeftRef = useRef({ x: 0, y: -1 });
+  const lastRightRef = useRef({ x: 0, y: 0 });
   const leftTouchActiveRef = useRef(false);
+  const rightTouchActiveRef = useRef(false);
   const armTriggeredRef = useRef(false);
   const holdStartRef = useRef<number | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -217,11 +219,11 @@ export const DroneControlScreen: React.FC = () => {
 
   const isHoldCondition = () =>
     leftTouchActiveRef.current &&
+    rightTouchActiveRef.current &&
     !armedRef.current &&
     !armTriggeredRef.current &&
-    connectedRef.current &&
-    lastLeftRef.current.x >= -0.1 && lastLeftRef.current.x <= 0.1 &&
-    lastLeftRef.current.y <= -0.85;
+    lastLeftRef.current.y <= -0.7 &&
+    lastRightRef.current.y <= -0.7;
 
   const cancelHold = () => {
     holdStartRef.current = null;
@@ -271,6 +273,14 @@ export const DroneControlScreen: React.FC = () => {
     if (!active) cancelHold();
   };
 
+  const handleRightTouchActive = (active: boolean) => {
+    rightTouchActiveRef.current = active;
+    if (!active) {
+      lastRightRef.current = { x: 0, y: 0 };
+      cancelHold();
+    }
+  };
+
   const handleLeftJoystick = (x: number, y: number) => {
     let thr = y;
     // Si se alcanzó el límite de altura, no permitir subir más (throttle > neutro)
@@ -289,7 +299,9 @@ export const DroneControlScreen: React.FC = () => {
     rightStickRef.current = { x, y };
     fcRef.current?.setTargetSticks(leftStickRef.current, rightStickRef.current);
     fcRef.current?.start();
+    lastRightRef.current = { x, y };
     setNormalizedValues(prev => ({ ...prev, pitch: y, yaw: x }));
+    evalHold();
   };
 
   const runCommand = async (fn: () => Promise<{ success: boolean; message: string }>) => {
@@ -396,7 +408,7 @@ export const DroneControlScreen: React.FC = () => {
         <View style={[styles.holdFill, { width: `${Math.round(holdProgress * 100)}%` }]} />
       </View>
       <Text style={styles.holdText}>
-        MANTENER {Math.max(1, HOLD_ARM_SECONDS - Math.floor(holdProgress * HOLD_ARM_SECONDS))}s
+        ↓ AMBOS ABAJO {Math.max(1, HOLD_ARM_SECONDS - Math.floor(holdProgress * HOLD_ARM_SECONDS))}s ↓
       </Text>
     </View>
   ) : null;
@@ -649,6 +661,7 @@ export const DroneControlScreen: React.FC = () => {
               onLeftMove={handleLeftJoystick}
               onRightMove={handleRightJoystick}
               onLeftTouchActive={handleLeftTouchActive}
+              onRightTouchActive={handleRightTouchActive}
               leftSize={joySize}
               rightSize={joySize}
               leftColor={AMBER}
@@ -683,6 +696,7 @@ export const DroneControlScreen: React.FC = () => {
               onLeftMove={handleLeftJoystick}
               onRightMove={handleRightJoystick}
               onLeftTouchActive={handleLeftTouchActive}
+              onRightTouchActive={handleRightTouchActive}
               leftSize={joySize}
               rightSize={joySize}
               leftColor={AMBER}
@@ -692,7 +706,7 @@ export const DroneControlScreen: React.FC = () => {
             {holdIndicator}
             <View style={styles.pwmContainer}>
               <View style={styles.pwmCol}>
-                <Text style={styles.joystickLabel}>ALT / LATERAL</Text>
+                <Text style={styles.joystickLabel}>ALT · LATERAL</Text>
                 <View style={styles.pwmRow}>
                   <View style={[styles.pwmChip, { borderColor: BORDER }]}>
                     <Text style={styles.pwmLabel}>THR</Text>
@@ -703,15 +717,15 @@ export const DroneControlScreen: React.FC = () => {
                     </Text>
                   </View>
                   <View style={[styles.pwmChip, { borderColor: BORDER }]}>
-                    <Text style={styles.pwmLabel}>YAW</Text>
-                    <Text style={[styles.pwmValue, { color: pwmDisplay.yaw !== 1500 ? YELLOW : LABEL }]}>
-                      {pwmDisplay.yaw}
+                    <Text style={styles.pwmLabel}>LAT</Text>
+                    <Text style={[styles.pwmValue, { color: pwmDisplay.roll !== 1500 ? AMBER : LABEL }]}>
+                      {pwmDisplay.roll}
                     </Text>
                   </View>
                 </View>
               </View>
               <View style={styles.pwmCol}>
-                <Text style={styles.joystickLabel}>PITCH / YAW</Text>
+                <Text style={styles.joystickLabel}>PITCH · YAW</Text>
                 <View style={styles.pwmRow}>
                   <View style={[styles.pwmChip, { borderColor: BORDER }]}>
                     <Text style={styles.pwmLabel}>PIT</Text>
@@ -720,9 +734,9 @@ export const DroneControlScreen: React.FC = () => {
                     </Text>
                   </View>
                   <View style={[styles.pwmChip, { borderColor: BORDER }]}>
-                    <Text style={styles.pwmLabel}>LAT</Text>
-                    <Text style={[styles.pwmValue, { color: pwmDisplay.roll !== 1500 ? C.cyan : LABEL }]}>
-                      {pwmDisplay.roll}
+                    <Text style={styles.pwmLabel}>YAW</Text>
+                    <Text style={[styles.pwmValue, { color: pwmDisplay.yaw !== 1500 ? C.cyan : LABEL }]}>
+                      {pwmDisplay.yaw}
                     </Text>
                   </View>
                 </View>
@@ -1075,9 +1089,9 @@ const styles = StyleSheet.create({
   },
   holdOverlay: {
     position: 'absolute',
-    left: '15%',
+    alignSelf: 'center',
     top: '42%',
-    width: 110,
+    width: 160,
     alignItems: 'center',
     gap: 4,
   },

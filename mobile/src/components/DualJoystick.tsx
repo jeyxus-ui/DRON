@@ -5,6 +5,7 @@ interface DualJoystickProps {
   onLeftMove: (x: number, y: number) => void;
   onRightMove: (x: number, y: number) => void;
   onLeftTouchActive?: (active: boolean) => void;
+  onRightTouchActive?: (active: boolean) => void;
   leftSize: number;
   rightSize: number;
   leftColor?: string;
@@ -16,6 +17,7 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
   onLeftMove,
   onRightMove,
   onLeftTouchActive,
+  onRightTouchActive,
   leftSize,
   rightSize,
   leftColor = '#FF8800',
@@ -43,6 +45,13 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
   const hasLeftTouch = () => {
     for (const info of activeTouches.current.values()) {
       if (info.side === 'left') return true;
+    }
+    return false;
+  };
+
+  const hasRightTouch = () => {
+    for (const info of activeTouches.current.values()) {
+      if (info.side === 'right') return true;
     }
     return false;
   };
@@ -108,6 +117,7 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
           onLeftTouchActive?.(true);
           normalizeLeft(t.pageX, t.pageY);
         } else {
+          onRightTouchActive?.(true);
           normalizeRight(t.pageX, t.pageY);
         }
       }
@@ -147,11 +157,14 @@ export const DualJoystick: React.FC<DualJoystickProps> = ({
           onLeftMove(0, -1);
         }
       } else {
-        Animated.parallel([
-          Animated.spring(rightAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
-          Animated.spring(rightAnimY, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
-        ]).start();
-        onRightMove(0, 0);
+        if (!hasRightTouch()) {
+          onRightTouchActive?.(false);
+          Animated.parallel([
+            Animated.spring(rightAnimX, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
+            Animated.spring(rightAnimY, { toValue: 0, useNativeDriver: true, tension: 150, friction: 10 }),
+          ]).start();
+          onRightMove(0, 0);
+        }
       }
     }
   }, [leftMaxDist, leftAnimX, leftAnimY, rightAnimX, rightAnimY, onLeftMove, onRightMove, onLeftTouchActive]);

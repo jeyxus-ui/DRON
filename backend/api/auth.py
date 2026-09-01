@@ -165,12 +165,51 @@ def verify_password(password: str, salt: str, expected_hash: str, iterations: in
 
 # ── Sesiones (tokens) ─────────────────────────────────────────────────────────
 class SessionStore:
-    """Tokens de sesión en memoria. Thread-safe."""
+    """Tokens de sesión persistidos en disco. Thread-safe.
 
-    def __init__(self, expiry_seconds: int):
+    Los tokens sobreviven reinicios del backend: el mismo token que la app
+    guardó sigue siendo válido hasta su expiración natural.
+    """
+
+    def __init__(self, expiry_seconds: int, persist_file: Optional[str] = None):
         self.expiry = expiry_seconds
         self._sessions: Dict[str, dict] = {}
         self._lock = threading.Lock()
+        self._file = persist_file
+        if self._file:
+            self._load()
+
+    # ── Persistencia ──────────────────────────────────────────────────────────
+
+    def _load(self) -> None:
+        try:
+            path = Path(self._file)
+            if not path.exists():
+                return
+            with path.open() as f:
+                data = json.load(f)
+            now = time.time()
+            self._sessions = {
+                t: s for t, s in data.items() if s.get("expires_at", 0) > now
+            }
+            logger.info("Sesiones cargadas desde disco: %d activas", len(self._sessions))
+        except Exception as e:
+            logger.warning("No se pudo cargar sesiones: %s", e)
+
+    def _save(self) -> None:
+        if not self._file:
+            return
+        try:
+            path = Path(self._file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = str(path) + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(self._sessions, f)
+            os.replace(tmp, str(path))
+        except Exception as e:
+            logger.warning("No se pudo guardar sesiones: %s", e)
+
+    # ── Operaciones ───────────────────────────────────────────────────────────
 
     def create(self, username: str) -> tuple:
         token = secrets.token_urlsafe(32)
@@ -180,6 +219,7 @@ class SessionStore:
                 "username": username,
                 "expires_at": expires_at,
             }
+            self._save()
         return token, expires_at
 
     def get(self, token: str) -> Optional[dict]:
@@ -191,12 +231,16 @@ class SessionStore:
                 return None
             if time.time() > session["expires_at"]:
                 del self._sessions[token]
+                self._save()
                 return None
             return dict(session)
 
     def revoke(self, token: str) -> bool:
         with self._lock:
-            return self._sessions.pop(token, None) is not None
+            removed = self._sessions.pop(token, None) is not None
+            if removed:
+                self._save()
+            return removed
 
     def revoke_all_for_user(self, username: str) -> int:
         with self._lock:
@@ -205,6 +249,8 @@ class SessionStore:
             ]
             for t in to_del:
                 del self._sessions[t]
+            if to_del:
+                self._save()
             return len(to_del)
 
 
@@ -261,7 +307,8 @@ class LoginRateLimiter:
 
 # ── Instancias globales ───────────────────────────────────────────────────────
 store = AuthStore(USERS_FILE)
-sessions = SessionStore(AUTH_TOKEN_EXPIRY)
+_SESSIONS_FILE = os.path.join(os.path.dirname(USERS_FILE), "sessions.json")
+sessions = SessionStore(AUTH_TOKEN_EXPIRY, persist_file=_SESSIONS_FILE)
 rate_limiter = LoginRateLimiter(AUTH_MAX_FAILED_LOGINS, AUTH_LOCKOUT_SECONDS)
 
 

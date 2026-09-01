@@ -152,7 +152,8 @@ class VisionDetector:
             logger.warning("ultralytics no instalado, detección YOLO deshabilitada")
             self._model_loaded.set()
 
-    def detect(self, frame: np.ndarray, depth_frame=None, depth_scale: float = 0.001) -> list[Detection]:
+    def detect(self, frame: np.ndarray, depth_frame=None, depth_scale: float = 0.001,
+               mtf_forward_m: float = None) -> list[Detection]:
         if frame is None or self._vision_disabled:
             return []
         if not self._model_ready:
@@ -176,13 +177,21 @@ class VisionDetector:
                         bbox_h = y2 - y1
                         label = self._model.names[cls_id] if self._model.names else str(cls_id)
 
-                        # Use real RealSense depth when available
+                        # Prioridad 1: profundidad real RealSense
                         distance = 999.0
                         if depth_frame is not None:
                             roi = depth_frame[max(0, int(y1)):int(y2), max(0, int(x1)):int(x2)]
                             valid = roi[roi > 0]
                             if len(valid) > 0:
                                 distance = float(np.median(valid)) * depth_scale
+
+                        # Prioridad 2: MTF-01 si el objeto está centrado (±25% del ancho)
+                        if distance == 999.0 and mtf_forward_m is not None:
+                            cx_norm = ((x1 + x2) / 2.0) / max(w, 1)
+                            if 0.25 <= cx_norm <= 0.75:
+                                distance = mtf_forward_m
+
+                        # Prioridad 3: estimación por tamaño del bounding box
                         if distance == 999.0:
                             known_h = KNOWN_HEIGHTS.get(cls_id, 0.5)
                             distance = (known_h * FOCAL_LENGTH_ESTIMATE) / bbox_h if bbox_h > 0 else 999.0

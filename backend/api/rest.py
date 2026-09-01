@@ -403,6 +403,10 @@ async def set_mode(request: ModeRequest):
             return {"success": False, "message": f"Modo inválido. Válidos: {', '.join(VALID_MODES)}"}
 
         success = await asyncio.to_thread(ctrl.set_mode, mode)
+        # Notificar al RC controller si entramos/salimos de GUIDED
+        rc = getattr(ctrl, 'rc', None)
+        if rc and hasattr(rc, 'set_guided_mode'):
+            rc.set_guided_mode(mode in ('GUIDED', 'GUIDED_NOGPS'))
         return {
             "success": success,
             "message": f"Modo cambiado a {mode}" if success else "Error cambiando modo",
@@ -525,6 +529,14 @@ def init_navigation(mav_controller):
         nav_controller.set_emergency_callback(nav_emergency)
         nav_controller.start()
         logger.info("NavigationController iniciado")
+
+        # Fusión visión→sensores: cámara alimenta el obstacle_map del SensorManager
+        try:
+            from backend.api import camera_stream as _cs
+            _cs.set_sensor_manager(sensor_manager)
+        except Exception as e:
+            logger.warning("No se pudo conectar visión al SensorManager: %s", e)
+
         return True
     except Exception as e:
         logger.exception("Error iniciando navegación: %s", e)

@@ -311,6 +311,10 @@ async def process_command(command: dict, mav_controller) -> dict:
                 rc = getattr(mav_controller, "rc", None)
                 if rc:
                     rc.set_armed(True)
+                    # Si ya estamos en GUIDED, liberar throttle RC
+                    current_mode = mav_controller.get_mode() if hasattr(mav_controller, 'get_mode') else ""
+                    if rc and hasattr(rc, 'set_guided_mode') and current_mode in ("GUIDED", "GUIDED_NOGPS"):
+                        rc.set_guided_mode(True)
             return {"success": success, "message": "Drone armado" if success else "Error armando"}
 
         elif cmd_type == "DISARM":
@@ -325,10 +329,20 @@ async def process_command(command: dict, mav_controller) -> dict:
             altitude = params.get("altitude", 10)
             if not (1 <= altitude <= 10):
                 return {"success": False, "message": "Altitud debe estar entre 1 y 10 metros"}
-            success  = await asyncio.to_thread(mav_controller.takeoff, altitude)
+            # Liberar throttle RC antes de takeoff para que el autopilot controle altura
+            rc = getattr(mav_controller, "rc", None)
+            if rc and hasattr(rc, 'set_guided_mode'):
+                rc.set_guided_mode(True)
+            success = await asyncio.to_thread(mav_controller.takeoff, altitude)
+            if success:
+                if rc:
+                    rc.set_armed(True)
             return {"success": success, "message": f"Despegando a {altitude}m" if success else "Error despegando"}
 
         elif cmd_type == "LAND":
+            rc = getattr(mav_controller, "rc", None)
+            if rc and hasattr(rc, 'set_guided_mode'):
+                rc.set_guided_mode(False)
             success = await asyncio.to_thread(mav_controller.land)
             return {"success": success, "message": "Aterrizando" if success else "Error aterrizando"}
 
@@ -358,13 +372,34 @@ async def process_command(command: dict, mav_controller) -> dict:
             if not rc:
                 return {"success": False, "message": "RC no disponible"}
 
-            # Valores ya normalizados: throttle 0..1, yaw/pitch/roll -1..1
-            rc.set_controls(
-                throttle=params.get("throttle"),
-                yaw=params.get("yaw"),
-                pitch=params.get("pitch"),
-                roll=params.get("roll"),
-            )
+            throttle = params.get("throttle", 0.0)
+            yaw      = params.get("yaw",      0.0)
+            pitch    = params.get("pitch",    0.0)
+            roll     = params.get("roll",     0.0)
+
+            # En GUIDED mode ArduCopter ignora RC_CHANNELS_OVERRIDE.
+            # Traducimos joystick → SET_POSITION_TARGET_LOCAL_NED (velocidades).
+            current_mode = mav_controller.get_mode() if hasattr(mav_controller, 'get_mode') else ""
+            if current_mode in ("GUIDED", "GUIDED_NOGPS"):
+                MAX_SPEED    = 5.0   # m/s horizontal
+                MAX_VZ       = 2.0   # m/s vertical
+                MAX_YAW_RATE = 0.8   # rad/s
+                # throttle: 0=bajar máx, 0.5=neutral, 1=subir máx → vz NED (+ = bajar)
+                vz = -(throttle - 0.5) * 2.0 * MAX_VZ
+                vx = pitch * MAX_SPEED
+                vy = roll  * MAX_SPEED
+                yr = yaw   * MAX_YAW_RATE
+                cmd = getattr(mav_controller, 'cmd', None)
+                if cmd and hasattr(cmd, 'set_velocity'):
+                    try:
+                        await asyncio.to_thread(cmd.set_velocity, vx, vy, vz, yr)
+                    except Exception as e:
+                        logger.warning("set_velocity error: %s", e)
+                return {"success": True, "message": "Velocidad actualizada (GUIDED)",
+                        "vx": round(vx, 2), "vy": round(vy, 2), "vz": round(vz, 2)}
+
+            # Otros modos (LOITER, STABILIZE, etc.): RC override normal
+            rc.set_controls(throttle=throttle, yaw=yaw, pitch=pitch, roll=roll)
             return {"success": True, "message": "RC actualizado", "values": rc.get_current_values()}
 
         elif cmd_type == "RC_RESET":
@@ -482,17 +517,46 @@ async def process_command(command: dict, mav_controller) -> dict:
 
         elif cmd_type == "START_MISSION":
             try:
+                if not _pending_mission_waypoints:
+                    return {"success": False, "message": "No hay waypoints — sube una ruta primero"}
+
+                # 1. ARM automático si no está armado
+                if not mav_controller.is_armed():
+                    logger.info("[START_MISSION] Dron no armado — armando automáticamente...")
+                    await asyncio.to_thread(mav_controller.set_mode, "GUIDED")
+                    armed = await asyncio.to_thread(mav_controller.arm, True)
+                    if not armed:
+                        return {"success": False, "message": "No se pudo armar el dron"}
+                    rc = getattr(mav_controller, "rc", None)
+                    if rc:
+                        rc.set_armed(True)
+                    await asyncio.sleep(1.5)
+
+                # 2. TAKEOFF automático si está en el suelo (altitud < 1 m)
+                tel = mav_controller.get_telemetry() if hasattr(mav_controller, 'get_telemetry') else {}
+                altitude = tel.get('altitude', 0)
+                if altitude < 1.0:
+                    logger.info("[START_MISSION] Despegando a 10 m antes de iniciar ruta...")
+                    _rc = getattr(mav_controller, "rc", None)
+                    if _rc and hasattr(_rc, 'set_guided_mode'):
+                        _rc.set_guided_mode(True)
+                    await asyncio.to_thread(mav_controller.set_mode, "GUIDED")
+                    await asyncio.to_thread(mav_controller.takeoff, 10)
+                    # Esperar hasta que suba (máx 15 s)
+                    for _ in range(30):
+                        await asyncio.sleep(0.5)
+                        tel = mav_controller.get_telemetry() if hasattr(mav_controller, 'get_telemetry') else {}
+                        if tel.get('altitude', 0) >= 5.0:
+                            break
+
+                # 3. Iniciar misión
                 from backend.api.rest import nav_controller as nc
-                if nc is not None and _pending_mission_waypoints:
-                    # Modo inteligente: nav_controller de Python maneja los GOTOs
-                    # y el LiDAR/RealSense pueden interrumpir y recalcular la ruta.
+                if nc is not None:
                     await asyncio.to_thread(mav_controller.set_mode, "GUIDED")
                     nc.start_mission(_pending_mission_waypoints)
-                    logger.info("[START_MISSION] Misión delegada al nav_controller "
-                                "(%d waypoints, evasión activa)", len(_pending_mission_waypoints))
+                    logger.info("[START_MISSION] Misión iniciada (%d waypoints)", len(_pending_mission_waypoints))
                     return {"success": True,
-                            "message": f"Misión iniciada con evasión activa ({len(_pending_mission_waypoints)} waypoints)"}
-                # Fallback: AUTO de ArduPilot si nav_controller no está disponible
+                            "message": f"Armado, despegando y ejecutando ruta ({len(_pending_mission_waypoints)} waypoints)"}
                 success = await asyncio.to_thread(mav_controller.start_mission)
                 return {"success": success, "message": "Misión iniciada" if success else "Error iniciando misión"}
             except Exception as e:
@@ -680,7 +744,22 @@ async def websocket_endpoint(websocket: WebSocket):
             rc.on_disconnect()
 
 
-def start_telemetry_broadcast(mav_controller):
-    loop = asyncio.get_event_loop()
-    manager.telemetry_task = loop.create_task(telemetry_broadcaster(mav_controller))
+def start_telemetry_broadcast(mav_controller, loop=None):
+    """Inicia el broadcaster de telemetría. Seguro de llamar desde un thread background."""
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+
+    if running_loop is not None:
+        # Llamado desde contexto async (e.g. lifespan hook async)
+        manager.telemetry_task = running_loop.create_task(telemetry_broadcaster(mav_controller))
+    elif loop is not None and loop.is_running():
+        # Llamado desde thread background — necesitamos run_coroutine_threadsafe
+        async def _create_task():
+            manager.telemetry_task = asyncio.ensure_future(telemetry_broadcaster(mav_controller))
+        asyncio.run_coroutine_threadsafe(_create_task(), loop)
+    else:
+        logger.error("start_telemetry_broadcast: no hay event loop disponible")
+        return
     logger.info("Telemetry broadcaster iniciado")

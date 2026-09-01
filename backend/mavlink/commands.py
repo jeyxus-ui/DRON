@@ -36,11 +36,9 @@ class DroneCommands:
         return ""
 
     def _is_armed(self) -> bool:
-        """Verifica si el dron está armado usando la cache de telemetry.
-        NO lee del socket directamente para evitar competir con _read_loop."""
+        """Verifica si el dron está armado según telemetría del Pixhawk (fuente de verdad)."""
         try:
-            telemetry_available = getattr(self, 'telemetry', None) and self.telemetry.data
-            if telemetry_available:
+            if getattr(self, 'telemetry', None) and self.telemetry.data:
                 return self.telemetry.data.get('armed', False)
         except Exception:
             pass
@@ -63,8 +61,14 @@ class DroneCommands:
                         deadline = time.time() + 15
                     else:
                         # 1=TEMPORARILY_REJECTED 2=DENIED 3=UNSUPPORTED 4=FAILED
+                        # Esperar ~400ms para que los STATUSTEXT de ArduPilot lleguen
+                        # (el COMMAND_ACK suele preceder al STATUSTEXT "PreArm: ...")
+                        time.sleep(0.4)
                         prearm = self._get_prearm_reason()
-                        raise ConnectionError(f"ARM rechazado por Pixhawk (result={ack.result}){prearm}")
+                        hint = ""
+                        if ack.result == 4 and not prearm:
+                            hint = " — verifica: safety switch (mantén presionado hasta LED fijo), ARMING_CHECK, BRD_SAFETY_DEFLT=0"
+                        raise ConnectionError(f"ARM rechazado por Pixhawk (result={ack.result}){prearm}{hint}")
             time.sleep(0.05)
         return False
 
@@ -75,9 +79,9 @@ class DroneCommands:
 
         current_mode = getattr(self.telemetry, 'data', {}).get('mode', 'UNKNOWN')
         if current_mode not in ("STABILIZE", "ACRO", "ALT_HOLD"):
-            logger.info(f"Modo actual: {current_mode}, cambiando a STABILIZE para armar")
+            logger.info(f"Modo actual: {current_mode}, intentando cambiar a STABILIZE")
             try:
-                self.set_mode("STABILIZE")
+                self.set_mode("STABILIZE", verify=False)  # no bloquear si modo no confirma
             except Exception as e:
                 logger.warning(f"No se pudo cambiar a STABILIZE: {e}")
 
@@ -86,56 +90,82 @@ class DroneCommands:
             self.conn._prearm_msgs.clear()
 
         if force and not self.conn._ekf_ready.is_set():
-            logger.info("⏳ Esperando EKF alignment antes de enviar ARM...")
-            if self.conn._ekf_ready.wait(timeout=30):
+            # Esperar EKF solo brevemente — si no llega en 5s continuar de todas formas.
+            # El wait largo (30s) causaba que el probe disparara reconexiones durante ARM.
+            logger.info("⏳ Esperando EKF alignment (max 5s)...")
+            if self.conn._ekf_ready.wait(timeout=5):
                 logger.info("✅ EKF alineado — procediendo a ARM")
-                time.sleep(1)
             else:
-                logger.warning("⚠️ EKF timeout (30s) — intentando ARM de todas formas")
-                time.sleep(3)
+                logger.warning("⚠️ EKF no detectado — intentando ARM con force=True")
 
-        for attempt in range(max_attempts):
-            logger.info("ARM intento %d/%d", attempt + 1, max_attempts)
+        # Si ya está armado no hace falta enviar el comando
+        if self._is_armed():
+            logger.info("✅ Dron ya estaba armado — confirmado por telemetry")
+            return True
 
-            with self.conn._lock:
-                master = self.conn.master
-                master.mav.command_long_send(
-                    master.target_system,
-                    master.target_component,
-                    mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-                    0, 1,
-                    21196 if force else 0,
-                    0, 0, 0, 0, 0,
-                )
+        # NO suprimir el probe: dejar que el auto-reconnect opere normalmente.
+        # Si el socket muere mientras esperamos el ACK, el reconnect lo restaura
+        # y el _read_loop capturará el ACK o el HEARTBEAT con armed=True.
 
-            if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM):
-                logger.info("✅ Motores armados (ACK intento %d)", attempt + 1)
-                return True
+        try:
+            for attempt in range(max_attempts):
+                logger.info("ARM intento %d/%d", attempt + 1, max_attempts)
 
-            logger.warning("⚠️ ACK timeout intento %d — intentando recv_match directo...", attempt + 1)
-            ack = self.conn.recv_match(msg_type="COMMAND_ACK", blocking=True, timeout=3)
-            if ack and ack.command == mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM:
-                if ack.result == 0:
-                    logger.info("✅ Motores armados (recv_match directo)")
-                    return True
-                else:
-                    raise ConnectionError(f"ARM rechazado: result={ack.result}")
+                with self.conn._lock:
+                    master = self.conn.master
+                    master.mav.command_long_send(
+                        master.target_system,
+                        master.target_component,
+                        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                        0, 1,
+                        21196 if force else 0,
+                        0, 0, 0, 0, 0,
+                    )
 
-            logger.warning("⚠️ Intento %d falló — verificando estado...", attempt + 1)
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                if self._is_armed():
-                    logger.info("✅ Dron armado (confirmado por HEARTBEAT)")
-                    return True
-                time.sleep(0.2)
+                # Mientras esperamos el ACK, también aceptar si telemetry confirma armado
+                deadline = time.time() + 10
+                armed_confirmed = False
+                while time.time() < deadline:
+                    with self.conn._ack_lock:
+                        if mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM in self.conn._pending_acks:
+                            ack = self.conn._pending_acks.pop(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
+                            if ack.result == 0:
+                                logger.info("✅ Motores armados (ACK intento %d)", attempt + 1)
+                                return True
+                            elif ack.result == 5:  # IN_PROGRESS
+                                deadline = time.time() + 15
+                            else:
+                                time.sleep(0.4)
+                                prearm = self._get_prearm_reason()
+                                hint = ""
+                                if ack.result == 4 and not prearm:
+                                    hint = " — verifica: safety switch (mantén presionado hasta LED fijo), ARMING_CHECK, BRD_SAFETY_DEFLT=0"
+                                raise ConnectionError(f"ARM rechazado por Pixhawk (result={ack.result}){prearm}{hint}")
+                    if self._is_armed():
+                        logger.info("✅ Dron armado (confirmado por telemetry durante espera ACK)")
+                        return True
+                    time.sleep(0.1)
 
-            if attempt < max_attempts - 1:
-                time.sleep(2)
+                logger.warning("⚠️ ACK timeout intento %d — verificando estado...", attempt + 1)
 
-        prearm = self._get_prearm_reason()
-        if prearm:
-            raise ConnectionError(f"ARM rechazado por Pixhawk{prearm}. Verifica: safety switch, GPS fix, calibración de brújula/IMU")
-        raise ConnectionError("Pixhawk no respondió al comando ARM tras %d intentos — verifica: safety switch físico, conexión MAVLink y heartbeat" % max_attempts)
+                # Espera adicional verificando telemetry
+                deadline2 = time.time() + 5
+                while time.time() < deadline2:
+                    if self._is_armed():
+                        logger.info("✅ Dron armado (confirmado por telemetry post-timeout)")
+                        return True
+                    time.sleep(0.2)
+
+                if attempt < max_attempts - 1:
+                    time.sleep(2)
+
+            prearm = self._get_prearm_reason()
+            if prearm:
+                raise ConnectionError(f"ARM rechazado por Pixhawk{prearm}. Verifica: safety switch, GPS fix, calibración de brújula/IMU")
+            raise ConnectionError("Pixhawk no respondió al comando ARM tras %d intentos — verifica: safety switch físico, conexión MAVLink y heartbeat" % max_attempts)
+        finally:
+            if hasattr(self.conn, 'suppress_probe'):
+                self.conn.suppress_probe(False)
 
     def _send_disarm_cmd(self, force=False):
         """Enviar comando DISARM via command_long. force=True usa param2=21196 (magic_force_arm_disarm_value en ArduPilot).
@@ -177,18 +207,36 @@ class DroneCommands:
             with self.conn._lock:
                 self._send_disarm_cmd(force=force)
 
-            if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=5):
-                logger.info("✅ Motores desarmados (ACK recibido)")
-                return True
+            try:
+                if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=10):
+                    logger.info("✅ Motores desarmados (ACK recibido)")
+                    return True
+            except ConnectionError as e:
+                if not force:
+                    # ArduCopter rechaza disarm normal en vuelo → reintentar con force
+                    logger.warning("⚠️ DISARM rechazado (%s) — reintentando con force=True", e)
+                    with self.conn._lock:
+                        self._send_disarm_cmd(force=True)
+                    try:
+                        if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=10):
+                            logger.info("✅ Motores desarmados (force, ACK recibido)")
+                            return True
+                    except ConnectionError:
+                        pass
+                else:
+                    raise
 
-            logger.warning("⚠️ DISARM ACK timeout — reintentando (force=%s)...", force)
+            logger.warning("⚠️ DISARM ACK timeout — reintentando con force...")
             for attempt in range(2):
                 logger.info("DISARM reintento %d/2", attempt + 1)
                 with self.conn._lock:
-                    self._send_disarm_cmd(force=force)
-                if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=5):
-                    logger.info("✅ Motores desarmados (ACK reintento)")
-                    return True
+                    self._send_disarm_cmd(force=True)
+                try:
+                    if self._wait_ack_direct(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout=10):
+                        logger.info("✅ Motores desarmados (ACK reintento)")
+                        return True
+                except ConnectionError:
+                    pass
 
             logger.warning("⚠️ DISARM ACK timeout — verificando estado via telemetry...")
             deadline = time.time() + 15

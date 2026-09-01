@@ -65,44 +65,56 @@ app.include_router(camera_stream.router)  # Ya tiene su propio prefix
 # Inicialización en eventos de ciclo de vida
 @app.on_event("startup")
 def startup_event():
-    try:
-        _seed_default_admin()
-        device = detect_mavlink_device()
-        logger.info(f"Selected MAVLink device: {device}")
-        rest.init_mav(device, MAVLINK_BAUD)
-        rest.start_monitoring(MAVLINK_BAUD, interval=5)
-        try:
-            camera_stream.camera.start(width=640, height=480, fps=30)
-            logger.info("✅ Cámara RealSense iniciada")
-        except Exception as e:
-            logger.warning(f"⚠️ Error iniciando cámara (continuando sin ella): {e}")
-        if getattr(rest, 'mav', None):
-            import threading
-            def _setup_params_bg():
-                try:
-                    rest.mav.setup_params()
-                    logger.info("✅ Parámetros críticos configurados")
-                except Exception as e:
-                    logger.warning("⚠️ Error configurando parámetros: %s", e)
-            threading.Thread(target=_setup_params_bg, daemon=True).start()
-            websocket.start_telemetry_broadcast(rest.mav)
-            logger.info("✅ Telemetry WebSocket iniciado")
-            def vision_emergency():
-                try:
-                    rest.mav.set_mode("BRAKE")
-                    logger.warning("🛑 Vision auto-avoid: BRAKE mode set")
-                except Exception as e:
-                    logger.error(f"Vision emergency failed: {e}")
-            camera_stream.set_emergency_callback(vision_emergency)
-            logger.info("✅ Vision → MAVLink emergency callback registrado")
+    import threading
+    import asyncio as _asyncio
 
-            rest.init_sensors(rest.mav)
-            rest.init_navigation(rest.mav)
-            logger.info("✅ Sensores y navegación autónoma iniciados")
-        else:
-            logger.warning("⚠️ MAV controller no disponible, WebSocket no iniciado")
-    except Exception as e:
-        logger.error(f"Failed to initialize on startup: {e}")
+    _seed_default_admin()
+
+    # Capturar el event loop del main thread para usarlo desde background threads
+    try:
+        _main_loop = _asyncio.get_event_loop()
+    except RuntimeError:
+        _main_loop = None
+
+    def _init_mavlink_bg():
+        try:
+            device = detect_mavlink_device()
+            logger.info(f"Selected MAVLink device: {device}")
+            rest.init_mav(device, MAVLINK_BAUD)
+            rest.start_monitoring(MAVLINK_BAUD, interval=5)
+            try:
+                camera_stream.camera.start(width=640, height=480, fps=30)
+                logger.info("✅ Cámara RealSense iniciada")
+            except Exception as e:
+                logger.warning(f"⚠️ Error iniciando cámara (continuando sin ella): {e}")
+            if getattr(rest, 'mav', None):
+                def _setup_params_bg():
+                    try:
+                        rest.mav.setup_params()
+                        logger.info("✅ Parámetros críticos configurados")
+                    except Exception as e:
+                        logger.warning("⚠️ Error configurando parámetros: %s", e)
+                threading.Thread(target=_setup_params_bg, daemon=True).start()
+                websocket.start_telemetry_broadcast(rest.mav, loop=_main_loop)
+                logger.info("✅ Telemetry WebSocket iniciado")
+                def vision_emergency():
+                    try:
+                        rest.mav.set_mode("BRAKE")
+                        logger.warning("🛑 Vision auto-avoid: BRAKE mode set")
+                    except Exception as e:
+                        logger.error(f"Vision emergency failed: {e}")
+                camera_stream.set_emergency_callback(vision_emergency)
+                logger.info("✅ Vision → MAVLink emergency callback registrado")
+                rest.init_sensors(rest.mav)
+                rest.init_navigation(rest.mav)
+                logger.info("✅ Sensores y navegación autónoma iniciados")
+            else:
+                logger.warning("⚠️ MAV controller no disponible, WebSocket no iniciado")
+        except Exception as e:
+            logger.error(f"Failed to initialize MAVLink: {e}")
+
+    threading.Thread(target=_init_mavlink_bg, daemon=True).start()
+    logger.info("✅ API lista — inicializando MAVLink en background...")
 
 @app.on_event("shutdown")
 def shutdown_event():

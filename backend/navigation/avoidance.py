@@ -62,16 +62,29 @@ class ObstacleAvoidance:
 
         mtf = sensor_data.get('mtf01', {})
         lidar = sensor_data.get('lidar', {})
+        vision = sensor_data.get('vision', {})
         yaw = sensor_data.get('drone_yaw', 0.0)
 
         mtf_dist = mtf.get('distance_m')
         lidar_closest = lidar.get('closest_distance')
+        vision_closest = vision.get('closest')
+        vision_dist = vision_closest.get('distance_m') if vision_closest else None
 
         min_dist = float('inf')
-        if mtf_dist is not None:
-            min_dist = min(min_dist, mtf_dist)
-        if lidar_closest is not None:
-            min_dist = min(min_dist, lidar_closest)
+        min_source = 'none'
+        if mtf_dist is not None and mtf_dist < min_dist:
+            min_dist = mtf_dist
+            min_source = 'mtf01'
+        if lidar_closest is not None and lidar_closest < min_dist:
+            min_dist = lidar_closest
+            min_source = 'lidar'
+        # Cámara aporta distancia solo si el objeto está en el arco frontal (±45°)
+        # y en zona crítica o warning — evita falsos frenos por objetos laterales
+        if vision_dist is not None and vision_closest.get('zone') in ('critical', 'warning'):
+            angle_off = abs(vision_closest.get('angle_offset_deg', 0))
+            if angle_off <= 45.0 and vision_dist < min_dist:
+                min_dist = vision_dist
+                min_source = f"vision({vision_closest.get('label', '?')})"
 
         now = time.time()
 
@@ -79,13 +92,14 @@ class ObstacleAvoidance:
         if min_dist <= self.brake_distance:
             if now - self._last_brake_time > self.brake_cooldown:
                 self._last_brake_time = now
-                logger.warning('[AVOID] CRÍTICO — obstáculo a %.2fm — BRAKE', min_dist)
+                logger.warning('[AVOID] CRÍTICO — obstáculo a %.2fm [%s] — BRAKE', min_dist, min_source)
                 return {
                     'action': 'BRAKE',
-                    'reason': f'obstacle at {min_dist:.2f}m',
+                    'reason': f'obstacle at {min_dist:.2f}m ({min_source})',
                     'distance': min_dist,
+                    'source': min_source,
                 }
-            return {'action': 'BRAKE_DELAYED', 'reason': 'brake cooldown', 'distance': min_dist}
+            return {'action': 'BRAKE_DELAYED', 'reason': 'brake cooldown', 'distance': min_dist, 'source': min_source}
 
         # ── CAUTION: obstacle within safety distance, compute evasion heading ──
         if min_dist <= self.safety_distance:
@@ -95,12 +109,13 @@ class ObstacleAvoidance:
                 turn -= 360
             elif turn < -180:
                 turn += 360
-            logger.info('[AVOID] Obstáculo a %.2fm — desvío heading %.1f° (giro %.0f°)',
-                        min_dist, safe_heading, turn)
+            logger.info('[AVOID] Obstáculo a %.2fm [%s] — desvío heading %.1f° (giro %.0f°)',
+                        min_dist, min_source, safe_heading, turn)
             return {
                 'action': 'AVOID',
-                'reason': f'obstacle at {min_dist:.2f}m',
+                'reason': f'obstacle at {min_dist:.2f}m ({min_source})',
                 'distance': min_dist,
+                'source': min_source,
                 'turn_deg': round(turn, 1),
                 'safe_heading': round(safe_heading, 1),
             }

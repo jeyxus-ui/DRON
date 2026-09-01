@@ -94,3 +94,5 @@ test_route_report.txt
 Thumbs.db
 
 documentacion/~$*
+# Session tokens (secretos en runtime)
+backend/data/sessions.json

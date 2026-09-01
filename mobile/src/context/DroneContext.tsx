@@ -245,7 +245,7 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const demoDelayTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sesión: DroneProvider solo se monta con sesión válida o en demo.
-  const { token: authToken, isDemo } = useAuth();
+  const { token: authToken, isDemo, logout } = useAuth();
   const authTokenRef = useRef(authToken);
   const isDemoRef    = useRef(isDemo);
   useEffect(() => { authTokenRef.current = authToken; }, [authToken]);
@@ -511,7 +511,18 @@ export const DroneProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         pendingCommands.current.clear();
 
         if (event.code === 1008) {
-          pushError('WS_AUTH_REJECTED', 'Sesión rechazada por el servidor — vuelve a iniciar sesión', 'critical');
+          // El backend puede rechazar el token si acaba de reiniciar y aún no
+          // cargó las sesiones del disco. Reintentamos hasta 3 veces antes de
+          // forzar un nuevo login.
+          reconnectAttempt.current += 1;
+          if (reconnectAttempt.current > 3) {
+            pushError('WS_AUTH_REJECTED', 'Sesión inválida — vuelve a iniciar sesión', 'warn');
+            logout();
+          } else {
+            pushError('WS_AUTH_REJECTED', `Reconectando... (intento ${reconnectAttempt.current})`, 'info');
+            const delay = 2000 * reconnectAttempt.current;
+            reconnectTimeout.current = setTimeout(() => connectWebSocket(), delay);
+          }
           return;
         }
 

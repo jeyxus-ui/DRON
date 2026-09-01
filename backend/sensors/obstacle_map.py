@@ -103,5 +103,38 @@ class ObstacleMap:
             'last_update': self.last_update,
         }
 
+    def update_from_vision(self, detections, drone_yaw_deg: float = 0.0,
+                           frame_width: int = 640, hfov_deg: float = 62.0):
+        """Inserta detecciones de cámara (YOLO/ArUco) en el grid de ocupación.
+
+        Convierte el centro del bounding box a un ángulo relativo al heading del dron
+        y coloca el obstáculo en la celda correspondiente según la distancia estimada.
+        """
+        for d in detections:
+            distance = getattr(d, 'distance', None)
+            if distance is None:
+                distance = d.get('distance', 999) if isinstance(d, dict) else 999
+            if distance <= 0.1 or distance > 10.0:
+                continue
+            try:
+                if hasattr(d, 'bbox'):
+                    x1, y1, x2, y2 = d.bbox
+                else:
+                    b = d['bbox']
+                    x1, y1, x2, y2 = b['x1'], b['y1'], b['x2'], b['y2']
+            except Exception:
+                continue
+            cx = (x1 + x2) / 2.0
+            # Ángulo del objeto respecto al frente del dron ([-FOV/2, FOV/2])
+            angle_offset = ((cx / max(frame_width, 1)) - 0.5) * hfov_deg
+            world_angle_rad = math.radians(drone_yaw_deg + angle_offset)
+            x = distance * math.cos(world_angle_rad)
+            y = distance * math.sin(world_angle_rad)
+            gx, gy = self._world_to_grid(x, y)
+            zone = getattr(d, 'zone', 'safe') if not isinstance(d, dict) else d.get('zone', 'safe')
+            weight = 0.6 if zone == 'critical' else 0.35
+            self.grid[gy][gx] = min(1.0, self.grid[gy][gx] + weight)
+        self.last_update = time.time()
+
     def reset(self):
         self.grid = [[0.0] * self.cols for _ in range(self.rows)]
