@@ -422,7 +422,7 @@ async def view_stream():
           const d = await r.json();
           if (d.count > 0) {
             let html = d.detections.map(m =>
-              m.label + ': ' + m.distance + 'm [' + m.zone + ']'
+              m.label + ' ' + Math.round(m.confidence * 100) + '% ' + m.distance + 'm [' + m.zone + ']'
             ).join(' | ');
             vision.innerHTML = html;
             vision.style.color = d.critical_count > 0 ? '#f00' : d.warning_count > 0 ? '#ffa500' : '#0f0';

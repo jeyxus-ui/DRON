@@ -19,3 +19,7 @@ opencv-python-headless==4.8.1.78
 # Para manejo de imágenes
 numpy>=1.26.0
 Pillow==10.1.0
+
+# Detección de objetos (YOLOv8n) — ya usada por backend/vision/detector.py,
+# declarada aquí para que una instalación limpia la obtenga sin pasos manuales.
+ultralytics==8.3.40

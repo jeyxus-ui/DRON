@@ -226,7 +226,7 @@ class VisionDetector:
             else:
                 color = (0, 255, 0)
             cv2.rectangle(result, (x1, y1), (x2, y2), color, 2)
-            label = f"{d.label} {d.distance:.1f}m [{d.zone}]"
+            label = f"{d.label} {d.confidence*100:.0f}% {d.distance:.1f}m [{d.zone}]"
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
             cv2.rectangle(result, (x1, y1 - th - 6), (x1 + tw + 4, y1), color, -1)
             cv2.putText(result, label, (x1 + 2, y1 - 4),
