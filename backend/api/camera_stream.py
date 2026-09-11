@@ -52,6 +52,8 @@ class RealSenseCamera:
         self._rs_active        = False
         self._rs_pipe          = None
         self._rs_align         = None
+        self._rs_depth_active  = False
+        self._rs_focal_length_px = None
         self.current_depth_frame = None
         self._depth_scale      = 0.001
 
@@ -97,6 +99,22 @@ class RealSenseCamera:
 
             def _go():
                 try:
+                    # Diagnostico: sin esto un fallo aqui era silencioso
+                    devs = rs.context().devices
+                    if len(devs) == 0:
+                        logger.error("❌ RealSense: ningun dispositivo. ¿Cable USB 3.0 conectado?")
+                        return
+                    dev = devs[0]
+                    try:
+                        usb = dev.get_info(rs.camera_info.usb_type_descriptor)
+                        if not usb.startswith("3"):
+                            logger.warning("⚠️ RealSense en USB %s — se requiere 3.x para profundidad", usb)
+                        else:
+                            logger.info("✅ %s en USB %s",
+                                        dev.get_info(rs.camera_info.name), usb)
+                    except Exception:
+                        pass
+
                     pipe = rs.pipeline()
                     cfg  = rs.config()
                     cfg.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
@@ -105,14 +123,30 @@ class RealSenseCamera:
                     depth_sensor = profile.get_device().first_depth_sensor()
                     self._depth_scale = depth_sensor.get_depth_scale()
                     self._rs_align  = rs.align(rs.stream.color)
+                    self._rs_depth_active = True
+
+                    # Intrinsecos del stream de profundidad: los usa
+                    # DepthCameraSensor para calcular el angulo exacto de cada
+                    # columna. Sin esto cae al FOV nominal, que es aproximado.
+                    try:
+                        vsp = profile.get_stream(rs.stream.depth).as_video_stream_profile()
+                        intr = vsp.get_intrinsics()
+                        self._rs_focal_length_px = intr.fx
+                        self._rs_principal_x = intr.ppx
+                        logger.info("Intrinsecos depth: fx=%.1f cx=%.1f", intr.fx, intr.ppx)
+                    except Exception as e_i:
+                        logger.debug("Sin intrinsecos: %s", e_i)
+
                     self._rs_pipe   = pipe
                     self._rs_active = True
-                except Exception:
+                except Exception as e:
+                    logger.error("❌ RealSense init fallo: %s: %s", type(e).__name__, e)
                     self._rs_active = False
 
             t = threading.Thread(target=_go, daemon=True)
             t.start()
-            t.join(timeout=3.0)
+            # 8s en vez de 3: la D435i puede tardar en arrancar en la Pi
+            t.join(timeout=8.0)
             if self._rs_active:
                 logger.info("✅ RealSense iniciada vía pyrealsense2")
                 return True
@@ -284,11 +318,39 @@ def set_emergency_callback(cb):
     logger.info("Emergency callback registered")
 
 
+def depth_frame_provider():
+    """
+    Entrega el último frame de profundidad al DepthCameraSensor.
+
+    Devuelve (array_uint16, escala_metros_por_unidad), o (None, escala) si
+    la cámara no está entregando profundidad.
+    """
+    return camera.current_depth_frame, camera._depth_scale
+
+
 def set_sensor_manager(sm):
     """Inyecta el SensorManager para que la cámara alimente el obstacle_map."""
     global _sensor_manager
     _sensor_manager = sm
     logger.info("SensorManager wired to camera_stream — visión fusionada con sensores")
+
+    # Conecta la profundidad al mapa de obstáculos. Esto es lo que la hace
+    # útil cuando YOLO está deshabilitado (DRON_VISION_ENABLED=0 en la Pi 4,
+    # ver AGENTS.md): sin esto la profundidad se capturaba y se descartaba,
+    # porque su único consumidor era VisionDetector.detect().
+    try:
+        if not camera._rs_depth_active:
+            logger.info("Profundidad no activa — la cámara no alimentará el mapa de obstáculos")
+        elif hasattr(sm, "enable_depth_camera"):
+            sm.enable_depth_camera(
+                depth_frame_provider,
+                fx=getattr(camera, "_rs_focal_length_px", None),
+                cx=getattr(camera, "_rs_principal_x", None),
+                invert_horizontal=False,   # VERIFICAR con prueba física antes de volar
+            )
+            logger.info("✅ Profundidad RealSense conectada al mapa de obstáculos")
+    except Exception as e:
+        logger.warning("No se pudo conectar la profundidad al mapa: %s", e)
 
 
 def _check_auto_avoid(markers: list) -> None:
@@ -394,6 +456,16 @@ async def view_stream():
       .safe .bar-fill { width:0%; background:#0f0; }
       .warn .bar-fill { width:50%; background:#ffa500; }
       .crit .bar-fill { width:100%; background:#f00; }
+      #depthbox { margin-top:10px; border:1px solid #0a0; padding:8px 12px;
+                  border-radius:4px; min-width:320px; }
+      #depthtitle { font-size:11px; color:#0a0; letter-spacing:2px; margin-bottom:6px; }
+      #depthsectors { display:flex; gap:4px; justify-content:center; align-items:flex-end; height:70px; }
+      .sect { width:52px; display:flex; flex-direction:column; justify-content:flex-end;
+              align-items:center; height:100%; }
+      .sect .val { font-size:12px; margin-bottom:2px; }
+      .sect .col { width:100%; border-radius:2px 2px 0 0; transition:height .3s, background .3s; }
+      .sect .ang { font-size:9px; color:#666; margin-top:3px; }
+      #depthinfo { font-size:11px; color:#888; margin-top:6px; }
     </style>
   </head>
   <body>
@@ -402,6 +474,12 @@ async def view_stream():
     <div id="status">Conectando...</div>
     <div id="vision">Esperando deteccion...</div>
     <div id="objlist" style="margin-top:4px;font-size:11px;color:#888;max-width:90vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+
+    <div id="depthbox">
+      <div id="depthtitle">PROFUNDIDAD REALSENSE</div>
+      <div id="depthsectors"></div>
+      <div id="depthinfo"></div>
+    </div>
     <script>
       const img = document.getElementById('stream');
       const status = document.getElementById('status');
@@ -437,9 +515,51 @@ async def view_stream():
           vision.innerHTML = 'Error consultando vision';
         }
       }
+      async function pollDepth() {
+        const box = document.getElementById('depthsectors');
+        const info = document.getElementById('depthinfo');
+        try {
+          const r = await fetch('/api/camera/depth');
+          const d = await r.json();
+          if (!d.active) {
+            box.innerHTML = '';
+            info.innerHTML = 'Inactiva: ' + (d.reason || '');
+            info.style.color = '#666';
+            return;
+          }
+          // Barras: mas alta = mas lejos. Rojo <1m, naranja <2m, verde el resto.
+          box.innerHTML = (d.sectors || []).map(function(s) {
+            if (s.closest_m == null) {
+              return '<div class="sect"><div class="val" style="color:#555">--</div>' +
+                     '<div class="col" style="height:3px;background:#333"></div>' +
+                     '<div class="ang">' + Math.round(s.angle_from) + '&deg;</div></div>';
+            }
+            var m = s.closest_m;
+            var col = m < 1 ? '#f00' : (m < 2 ? '#ffa500' : '#0f0');
+            var alt = Math.max(4, Math.min(46, m * 7));
+            return '<div class="sect"><div class="val" style="color:' + col + '">' +
+                   m.toFixed(2) + '</div>' +
+                   '<div class="col" style="height:' + alt + 'px;background:' + col + '"></div>' +
+                   '<div class="ang">' + Math.round(s.angle_from) + '&deg;</div></div>';
+          }).join('');
+          var extra = '';
+          if (d.closest_distance != null) {
+            extra = ' | mas cerca: ' + d.closest_distance + 'm a ' + d.closest_angle + '&deg;';
+          }
+          info.innerHTML = d.points + ' puntos | fx=' + (d.fx || '?') +
+                           ' | frames: ' + d.frames_read +
+                           (d.errors ? ' | errores: ' + d.errors : '') + extra;
+          info.style.color = '#888';
+        } catch(e) {
+          info.innerHTML = 'Error consultando profundidad';
+          info.style.color = '#a00';
+        }
+      }
       setInterval(refresh, 100);
       setInterval(pollVision, 500);
+      setInterval(pollDepth, 500);
       pollVision();
+      pollDepth();
     </script>
   </body>
 </html>
@@ -493,6 +613,33 @@ async def camera_status():
         "fps":        camera._fps,
         "ws_clients": len(_ws_clients),
         "vision":     detector.get_status(),
+    }
+
+
+@router.get("/depth")
+async def get_depth():
+    """
+    Estado de la camara de profundidad, sin autenticacion (igual que /vision),
+    para poder verlo desde el navegador sin recompilar la app.
+    """
+    sm = _sensor_manager
+    if sm is None or not hasattr(sm, "depth_cam"):
+        return {"active": False, "reason": "sensores no iniciados"}
+    dc = sm.depth_cam
+    if not dc.is_running:
+        return {"active": False, "reason": "profundidad no activa (¿RealSense conectada por USB 3.0?)"}
+    closest = dc.closest_obstacle()
+    st = dc.status
+    return {
+        "active": True,
+        "points": st.get("points_last_scan", 0),
+        "frames_read": st.get("frames_read", 0),
+        "frames_empty": st.get("frames_empty", 0),
+        "errors": st.get("errors", 0),
+        "fx": st.get("fx"),
+        "closest_distance": round(closest[0], 2) if closest else None,
+        "closest_angle": round(closest[1], 1) if closest else None,
+        "sectors": dc.sectors(5),
     }
 
 

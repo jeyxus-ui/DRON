@@ -10,6 +10,7 @@ from .base import LidarScan, DistanceReading
 from .mtf01 import MTF01Sensor
 from .ydlidar_x4 import YDLidarX4
 from .obstacle_map import ObstacleMap
+from .depth_camera import DepthCameraSensor
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,10 @@ class SensorManager:
         self.sim_mode = sim_mode
         self.mtf01 = MTF01Sensor(sim_mode=sim_mode)
         self.lidar = YDLidarX4(sim_mode=sim_mode)
+        # Camara de profundidad: arranca inerte. Solo se activa si alguien le
+        # conecta un proveedor de frames (ver enable_depth_camera). Asi el
+        # manager funciona igual en equipos sin RealSense.
+        self.depth_cam = DepthCameraSensor(sim_mode=False)
         self.obstacle_map = ObstacleMap(width_m=20, height_m=20, resolution_m=0.2)
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -26,6 +31,7 @@ class SensorManager:
 
         self._latest_mtf01 = DistanceReading(timestamp=0, valid=False)
         self._latest_lidar = LidarScan(timestamp=0, valid=False)
+        self._latest_depth = LidarScan(timestamp=0, valid=False)
         self._drone_yaw = 0.0
         self._latest_vision: list = []      # detecciones YOLO/ArUco del último frame
         self._vision_lock = threading.Lock()
@@ -49,15 +55,57 @@ class SensorManager:
         self.lidar.stop()
         logger.info('[SENSORES] Manager detenido')
 
+    def enable_depth_camera(self, frame_provider, fx: float = None, cx: float = None,
+                            invert_horizontal: bool = False) -> bool:
+        """
+        Activa la RealSense como fuente de obstaculos.
+
+        frame_provider() debe devolver (array_profundidad, escala_metros).
+        Se llama desde donde se inicializa la camara, para no acoplar el
+        modulo de sensores con el de video.
+
+        OJO: verificar invert_horizontal con una prueba fisica antes de volar
+        (ver nota en depth_camera._column_to_angle).
+        """
+        self.depth_cam.invert_horizontal = invert_horizontal
+        self.depth_cam.set_frame_provider(frame_provider)
+        if fx:
+            self.depth_cam.set_intrinsics(fx, cx)
+        ok = self.depth_cam.start()
+        logger.info('[SENSORES] Camara de profundidad %s',
+                    'activada' if ok else 'NO pudo activarse')
+        return ok
+
+    def _depth_summary(self) -> dict:
+        """Resumen del ultimo barrido de la camara de profundidad."""
+        if not self.depth_cam.is_running:
+            return {'active': False, 'points': 0,
+                    'closest_distance': None, 'closest_angle': None}
+        closest = self.depth_cam.closest_obstacle()
+        return {
+            'active': True,
+            'points': len(self._latest_depth.points) if self._latest_depth.valid else 0,
+            'closest_distance': round(closest[0], 3) if closest else None,
+            'closest_angle': round(closest[1], 1) if closest else None,
+            'valid': self._latest_depth.valid,
+        }
+
     def _loop(self):
         while self._running:
             mtf = self.mtf01.read()
             lid = self.lidar.read()
+            # Solo lee si alguien conecto la camara (si no, devuelve invalido barato)
+            dep = self.depth_cam.read() if self.depth_cam.is_running else None
             with self._lock:
                 self._latest_mtf01 = mtf
                 self._latest_lidar = lid
                 if lid.valid and lid.points:
                     self.obstacle_map.update_from_lidar(lid.points, self._drone_yaw)
+                # La profundidad entrega LidarPoint, asi que reusa la misma
+                # entrada del mapa que el lidar. No hace falta metodo nuevo.
+                if dep is not None and dep.valid and dep.points:
+                    self._latest_depth = dep
+                    self.obstacle_map.update_from_lidar(dep.points, self._drone_yaw)
                 if mtf.valid:
                     self.obstacle_map.update_from_ultrasonic(mtf.distance_m, self._drone_yaw)
                 self.obstacle_map.decay(0.995)
@@ -130,6 +178,7 @@ class SensorManager:
                 'count': len(vision_list),
                 'valid': len(vision_list) > 0,
             },
+            'depth_camera': self._depth_summary(),
             'obstacle_map': obs_map,
             'drone_yaw': drone_yaw,
             'safe_direction': safe_dir,
@@ -141,6 +190,7 @@ class SensorManager:
             'sim_mode': self.sim_mode,
             'mtf01': self.mtf01.status,
             'lidar': self.lidar.status,
+            'depth_camera': self.depth_cam.status,
         }
 
     def has_obstacle_ahead(self, threshold_m: float = 2.0) -> bool:
@@ -150,6 +200,13 @@ class SensorManager:
                 return True
             if self._latest_lidar.valid and self._latest_lidar.points:
                 for p in self._latest_lidar.points:
+                    if p.distance_m < threshold_m and abs(p.angle_deg) < 45:
+                        return True
+            # La camara de profundidad ve obstaculos que el MTF-01 (un solo haz
+            # al frente) y el lidar (plano horizontal unico) se pierden: mesas,
+            # cables, ramas a distinta altura.
+            if self._latest_depth.valid and self._latest_depth.points:
+                for p in self._latest_depth.points:
                     if p.distance_m < threshold_m and abs(p.angle_deg) < 45:
                         return True
             return False
