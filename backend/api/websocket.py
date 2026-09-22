@@ -140,8 +140,8 @@ def _get_nav_status() -> dict:
                 "nav_total_waypoints":  s.get("total_waypoints", 0),
                 "nav_avoidance_active": s.get("avoidance_active", False),
             }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Error obteniendo estado de navegación: %s", e)
     return {}
 
 
@@ -186,8 +186,8 @@ async def get_telemetry_data(mav_controller) -> dict:
                 tel = dict(_external_mavlink_data)
                 tel.update(_get_sensor_data())
                 return tel
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Error obteniendo datos externos del bridge: %s", e)
 
         telemetry = getattr(mav_controller, "telemetry", None)
         sensors = _get_sensor_data()

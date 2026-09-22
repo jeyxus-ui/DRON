@@ -48,10 +48,8 @@ def test_candidate_probe_without_pyserial_uses_os_open(monkeypatch):
     """If pyserial is not available, fallback to os.open probe should work."""
     monkeypatch.setattr(config, 'MAVLINK_DEVICE', '')
 
-    # No serial module
+    # No serial module (None en sys.modules fuerza ImportError en 'import serial')
     monkeypatch.setitem(sys.modules, 'serial', None)
-    if 'serial' in sys.modules:
-        sys.modules.pop('serial', None)
 
     # Make /dev/ttyUSB0 exist
     monkeypatch.setattr(os.path, 'exists', lambda p: p == '/dev/ttyUSB0')
@@ -67,11 +65,14 @@ def test_by_id_probe(monkeypatch):
     """If /dev/serial/by-id contains an accessible device, it should be returned."""
     monkeypatch.setattr(config, 'MAVLINK_DEVICE', '')
 
-    # No candidate files
-    monkeypatch.setattr(os.path, 'exists', lambda p: False)
+    # No candidate files, salvo la entrada by-id simulada
+    monkeypatch.setattr(os.path, 'exists', lambda p: p == '/dev/serial/by-id/usb-FAKE-1')
 
     # Simulate a by-id entry
     monkeypatch.setattr(glob, 'glob', lambda pattern: ['/dev/serial/by-id/usb-FAKE-1'])
+
+    # No serial module (fuerza el fallback a os.open, igual que el otro test)
+    monkeypatch.setitem(sys.modules, 'serial', None)
 
     # os.open works on that path
     monkeypatch.setattr(os, 'open', lambda path, flags: 4)

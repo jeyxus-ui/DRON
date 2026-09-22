@@ -350,6 +350,6 @@ class RCOverrideController:
                 "yaw_pwm":      self._to_pwm(self.yaw),
                 "pitch_pwm":    self._to_pwm(self.pitch),
                 "roll_pwm":     self._to_pwm(self.roll),
-                "in_idle":      self._armed and not self._failsafe_fired,
+                "in_idle":      self._armed and self.ARM_IDLE_DURATION > 0 and not self._failsafe_fired,
                 "idle_remaining": 0,
             }

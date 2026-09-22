@@ -322,7 +322,7 @@ class MAVLinkConnection:
                 if not data:
                     return self.msg_age() < 10.0
             return True
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError, TypeError):
             return self.msg_age() < 10.0
 
     def mark_dead(self, reason: str = "unknown"):

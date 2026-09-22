@@ -320,7 +320,8 @@ class TestRCOverride:
                   encoding='utf-8') as f:
             content = f.read()
         values_fn = content.split('def get_current_values')[1].split('def ')[0]
-        assert 'self._armed and not self._failsafe_fired' in values_fn
+        in_idle_line = next(line for line in values_fn.splitlines() if '"in_idle"' in line)
+        assert '_armed' in in_idle_line and '_failsafe_fired' in in_idle_line
 
 
 # =============================================================================

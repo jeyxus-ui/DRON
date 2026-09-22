@@ -4,6 +4,7 @@ import threading
 import types
 from unittest.mock import MagicMock, PropertyMock, patch, call
 import pytest
+from pymavlink import mavutil
 
 
 # =============================================================================
@@ -77,7 +78,18 @@ class TestRCOverrideFailsafe:
         assert rc._disconnected_at is None
         assert rc._disarmed_by_failsafe is False
 
-    def test_in_idle_true_when_armed_and_failsafe_not_fired(self, rc):
+    def test_in_idle_false_with_default_zero_duration(self, rc):
+        """ARM_IDLE_DURATION=0.0 (default actual, 'sin idle') — nunca debe
+        reportar in_idle=True aunque el failsafe todavía no se haya disparado."""
+        rc.set_armed(True)
+        rc._failsafe_fired = False
+        values = rc.get_current_values()
+        assert values["in_idle"] is False
+
+    def test_in_idle_true_when_armed_and_failsafe_not_fired(self, rc, monkeypatch):
+        """Con un ARM_IDLE_DURATION > 0 configurado, in_idle sí debe ser True
+        mientras el periodo de idle no haya terminado (failsafe no disparado)."""
+        monkeypatch.setattr(rc, 'ARM_IDLE_DURATION', 5.0)
         rc.set_armed(True)
         rc._failsafe_fired = False
         values = rc.get_current_values()
@@ -159,18 +171,20 @@ class TestRCOverrideFailsafe:
         assert values["in_idle"] is False
 
     def test_unused_channels_are_65535_in_send(self, rc):
-        from backend.mavlink.rc_override import RCOverrideController
-        source = open(RCOverrideController.__module__.replace('.', '/') + '.py', encoding='utf-8').read() if False else ""
-        import ast, os
+        import os
         path = os.path.join(os.path.dirname(__file__), '..', 'mavlink', 'rc_override.py')
-        with open(path) as f:
+        with open(path, encoding='utf-8') as f:
             content = f.read()
         assert '65535, 65535, 65535, 65535' in content
 
     def test_send_failures_increment_on_exception(self, rc):
         rc.conn.master.mav.rc_channels_override_send.side_effect = Exception("send error")
-        with patch.object(rc, 'lock', threading.Lock()):
-            rc._send_loop()
+        rc.running = True
+        t = threading.Thread(target=rc._send_loop, daemon=True)
+        t.start()
+        time.sleep(0.25)  # da tiempo a al menos una iteración a 10Hz
+        rc.running = False
+        t.join(timeout=1)
         assert rc._send_failures >= 1
 
     def test_throttle_zero_to_pwm_is_1000(self, rc):
@@ -484,10 +498,14 @@ class TestMAVControllerArmDisarm:
         result = ctrl.kill_motors()
         assert result is True
 
-    def test_setup_params_sets_diarm_delay(self, ctrl):
+    def test_setup_params_sets_diarm_delay(self, ctrl, monkeypatch):
+        # INDOOR_MODE=1 agrega un set_param('FENCE_ENABLE', 0) DESPUÉS de
+        # DISARM_DELAY — assert_any_call en vez de assert_called_with, y se
+        # limpia la env var para que el test no dependa del entorno ambiente.
+        monkeypatch.delenv('INDOOR_MODE', raising=False)
         ctrl.set_param = MagicMock(return_value=60)
         ctrl.setup_params()
-        ctrl.set_param.assert_called_with('DISARM_DELAY', 60)
+        ctrl.set_param.assert_any_call('DISARM_DELAY', 60)
 
     def test_read_param_safe_returns_none_on_error(self, ctrl):
         with patch.object(ctrl, 'get_param', side_effect=Exception("error")):
@@ -701,14 +719,27 @@ class TestCommandsFlow:
         assert result is False
 
     def test_wait_ack_direct_in_progress_extends_deadline(self, cmd):
-        mock_ack = MagicMock()
-        mock_ack.command = 400
-        mock_ack.result = 4
+        """result=5 (MAV_RESULT_IN_PROGRESS) debe extender el deadline 15s en vez
+        de fallar — se verifica entregando el ACK final (result=0) un poco después
+        del timeout original: si IN_PROGRESS no extendiera el deadline, la función
+        ya habría retornado False antes de que ese ACK final llegue."""
+        mock_ack_progress = MagicMock()
+        mock_ack_progress.command = 400
+        mock_ack_progress.result = 5  # MAV_RESULT_IN_PROGRESS
         with cmd.conn._ack_lock:
-            cmd.conn._pending_acks[400] = mock_ack
-        deadline_before = time.time() + 0.5
-        result = cmd._wait_ack_direct(400, timeout=0.5)
-        assert result is False
+            cmd.conn._pending_acks[400] = mock_ack_progress
+
+        def _deliver_final_ack():
+            time.sleep(0.15)
+            mock_ack_final = MagicMock()
+            mock_ack_final.command = 400
+            mock_ack_final.result = 0
+            with cmd.conn._ack_lock:
+                cmd.conn._pending_acks[400] = mock_ack_final
+
+        threading.Thread(target=_deliver_final_ack, daemon=True).start()
+        result = cmd._wait_ack_direct(400, timeout=0.1)
+        assert result is True
 
     def test_send_disarm_cmd_sends_with_force(self, cmd):
         cmd.conn.master = MagicMock()
@@ -743,9 +774,9 @@ class TestCommandsFlow:
         assert call_args is not None
         args = call_args[0]
         assert args[2] == mavutil.mavlink.MAV_CMD_DO_MOTOR_TEST
-        assert args[5] == 0
-        assert args[7] == 15
-        assert args[8] == 2
+        assert args[4] == 0    # motor_id
+        assert args[6] == 15   # throttle_pct
+        assert args[7] == 2    # duration_s
 
     def test_test_motor_with_even_if_armed(self, cmd):
         cmd.conn.master = MagicMock()
@@ -755,7 +786,7 @@ class TestCommandsFlow:
         assert call_args is not None
         args = call_args[0]
         assert args[2] == mavutil.mavlink.MAV_CMD_DO_MOTOR_TEST
-        assert args[6] == 3
+        assert args[5] == 3   # throttle_type = 3 cuando even_if_armed=True
 
     def test_is_armed_uses_telemetry(self, cmd):
         cmd.telemetry.data['armed'] = True
@@ -780,7 +811,7 @@ class TestCommandsFlow:
             with cmd.conn._ack_lock:
                 cmd.conn._pending_acks[400] = mock_ack
             result = cmd.arm(force=True)
-            cmd.set_mode.assert_called_with("STABILIZE")
+            cmd.set_mode.assert_called_with("STABILIZE", verify=False)
             assert result is True
 
     def test_disarm_sends_throttle_zero_pwm(self, cmd):
